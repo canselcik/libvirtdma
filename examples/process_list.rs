@@ -9,7 +9,10 @@ fn main() {
 
         println!("Process List:\nPID\tVIRT\t\t\tPHYS\t\tBASE\t\tNAME");
         for i in &ctx.refresh_processes().process_list {
-           println!("{:#4x}\t{:#16x}\t{:#9x}\t{:#9x}\t{}", i.proc.pid, i.proc.process, i.proc.physProcess, i.proc.dirBase, i.name); 
+            println!(
+                "{:#4x}\t{:#16x}\t{:#9x}\t{:#9x}\t{}",
+                i.proc.pid, i.proc.process, i.proc.physProcess, i.proc.dirBase, i.name
+            );
         }
     } else {
         let (eval, estr) = ctx_ret.err().unwrap();

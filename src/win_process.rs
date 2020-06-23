@@ -1,7 +1,7 @@
 use crate::sys;
 
-use crate::win_dll::*;
 use crate::rwlist::*;
+use crate::win_dll::*;
 
 /// Structure representing a Windows process
 ///
@@ -18,7 +18,12 @@ impl WinProcess {
     pub fn new(proc: sys::WinProc) -> WinProcess {
         let mut ret = WinProcess {
             proc: proc,
-            name: unsafe { std::ffi::CStr::from_ptr(proc.name).to_str().unwrap_or("").to_string() },
+            name: unsafe {
+                std::ffi::CStr::from_ptr(proc.name)
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string()
+            },
             module_list: vec![],
         };
 
@@ -44,14 +49,20 @@ impl WinProcess {
     /// Returns a value of type `T` at a given process' virtual address
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `ctx` - vmread C context
     /// * `address` - address to read the data from
     pub fn read<T>(&self, ctx: &sys::WinCtx, address: u64) -> T {
-        let mut ret : T = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+        let mut ret: T = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
 
         unsafe {
-            sys::VMemRead(&ctx.process, self.proc.dirBase, &mut ret as *mut T as u64, address, std::mem::size_of::<T>() as u64);
+            sys::VMemRead(
+                &ctx.process,
+                self.proc.dirBase,
+                &mut ret as *mut T as u64,
+                address,
+                std::mem::size_of::<T>() as u64,
+            );
         }
 
         ret
@@ -68,7 +79,13 @@ impl WinProcess {
     /// * `value` - reference to the value that is to be written
     pub fn write<T>(&self, ctx: &sys::WinCtx, address: u64, value: &T) -> &WinProcess {
         unsafe {
-            sys::VMemWrite(&ctx.process, self.proc.dirBase, value as *const T as u64, address, std::mem::size_of::<T>() as u64);
+            sys::VMemWrite(
+                &ctx.process,
+                self.proc.dirBase,
+                value as *const T as u64,
+                address,
+                std::mem::size_of::<T>() as u64,
+            );
         }
 
         self

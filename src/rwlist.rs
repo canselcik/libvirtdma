@@ -1,5 +1,5 @@
+use smallvec::{smallvec, SmallVec};
 use std::marker::PhantomData;
-use smallvec::{SmallVec, smallvec};
 
 /// A list of memory operations to be executed on its destruction
 ///
@@ -33,14 +33,14 @@ impl<'a> RWList<'a> {
     /// Queue a write operation
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `address` - address to write the data to
     /// * `val` - reference to the value to be written
     pub fn write<T>(&mut self, address: u64, val: &'a T) -> &mut Self {
         self.write_list.push(sys::RWInfo {
             local: val as *const T as u64,
             remote: address,
-            size: std::mem::size_of::<T>() as u64
+            size: std::mem::size_of::<T>() as u64,
         });
         self
     }
@@ -48,14 +48,14 @@ impl<'a> RWList<'a> {
     /// Queue an array write operation
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `address` - address to write the data to
     /// * `val` - reference to the slice to be written
     pub fn write_arr<T>(&mut self, address: u64, val: &'a [T]) -> &mut Self {
         self.write_list.push(sys::RWInfo {
             local: val.as_ptr() as u64,
             remote: address,
-            size: (std::mem::size_of::<T>() * val.len()) as u64
+            size: (std::mem::size_of::<T>() * val.len()) as u64,
         });
         self
     }
@@ -63,14 +63,14 @@ impl<'a> RWList<'a> {
     /// Queue a read operation
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `address` - address to read the data from
     /// * `val` - reference to the value to read the data into
     pub fn read<T>(&mut self, address: u64, val: &'a mut T) -> &mut Self {
         self.read_list.push(sys::RWInfo {
             local: val as *mut T as u64,
             remote: address,
-            size: std::mem::size_of::<T>() as u64
+            size: std::mem::size_of::<T>() as u64,
         });
         self
     }
@@ -78,14 +78,14 @@ impl<'a> RWList<'a> {
     /// Queue an array read operation
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `address` - address to read the data from
     /// * `val` - reference to the slice to read the data into
     pub fn read_arr<T>(&mut self, address: u64, val: &'a mut [T]) -> &mut Self {
         self.read_list.push(sys::RWInfo {
             local: val.as_mut_ptr() as u64,
             remote: address,
-            size: (std::mem::size_of::<T>() * val.len()) as u64
+            size: (std::mem::size_of::<T>() * val.len()) as u64,
         });
         self
     }
@@ -101,20 +101,33 @@ impl<'a> RWList<'a> {
     /// * `read_start` - starting index for read operations
     /// * `write_start` - starting index for write operations
     pub fn commit(&mut self, read_start: usize, write_start: usize) -> (&mut Self, usize, usize) {
-        let mut done_rwlen : usize = 0;
-        let mut queued_rwlen : usize = 0;
+        let mut done_rwlen: usize = 0;
+        let mut queued_rwlen: usize = 0;
 
         if read_start < self.read_list.len() {
             {
                 let read_list = &mut self.read_list[read_start..];
-                read_list.sort_unstable_by(|a, b| (a.remote & !0xfff).partial_cmp(&(b.remote & !0xfff)).unwrap());
+                read_list.sort_unstable_by(|a, b| {
+                    (a.remote & !0xfff)
+                        .partial_cmp(&(b.remote & !0xfff))
+                        .unwrap()
+                });
                 queued_rwlen += read_list.iter().fold(0, |acc, a| acc + a.size) as usize;
-               
+
                 done_rwlen += unsafe {
                     (if self.dir_base != 0 {
-                        sys::VMemReadMul(self.process, self.dir_base, read_list.as_mut_ptr(), read_list.len() as u64)
+                        sys::VMemReadMul(
+                            self.process,
+                            self.dir_base,
+                            read_list.as_mut_ptr(),
+                            read_list.len() as u64,
+                        )
                     } else {
-                        sys::MemReadMul(self.process, read_list.as_mut_ptr(), read_list.len() as u64)
+                        sys::MemReadMul(
+                            self.process,
+                            read_list.as_mut_ptr(),
+                            read_list.len() as u64,
+                        )
                     }) as usize
                 };
             }
@@ -125,20 +138,32 @@ impl<'a> RWList<'a> {
         if write_start < self.write_list.len() {
             {
                 let write_list = &mut self.write_list[write_start..];
-                write_list.sort_unstable_by(|a, b| (a.remote & !0xfff).partial_cmp(&(b.remote & !0xfff)).unwrap());
+                write_list.sort_unstable_by(|a, b| {
+                    (a.remote & !0xfff)
+                        .partial_cmp(&(b.remote & !0xfff))
+                        .unwrap()
+                });
                 queued_rwlen += write_list.iter().fold(0, |acc, a| acc + a.size) as usize;
 
                 done_rwlen += unsafe {
                     (if self.dir_base != 0 {
-                        sys::VMemWriteMul(self.process, self.dir_base, write_list.as_mut_ptr(), write_list.len() as u64)
+                        sys::VMemWriteMul(
+                            self.process,
+                            self.dir_base,
+                            write_list.as_mut_ptr(),
+                            write_list.len() as u64,
+                        )
                     } else {
-                        sys::MemWriteMul(self.process, write_list.as_mut_ptr(), write_list.len() as u64)
+                        sys::MemWriteMul(
+                            self.process,
+                            write_list.as_mut_ptr(),
+                            write_list.len() as u64,
+                        )
                     }) as usize
-                } 
+                }
             }
-            
-            self.write_list.truncate(write_start);
 
+            self.write_list.truncate(write_start);
         }
 
         (self, queued_rwlen, done_rwlen)
@@ -158,7 +183,6 @@ impl<'a> RWList<'a> {
     pub fn commit_write(&mut self) -> (&mut Self, usize, usize) {
         self.commit(self.read_list.len(), 0)
     }
-
 }
 
 impl Drop for RWList<'_> {

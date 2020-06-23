@@ -1,4 +1,3 @@
-
 use crate::win_export::*;
 
 /// Represents a single Windows process module
@@ -8,17 +7,22 @@ use crate::win_export::*;
 pub struct WinDll {
     pub name: String,
     pub info: sys::WinModule,
-    pub export_list: Vec<WinExport>
+    pub export_list: Vec<WinExport>,
 }
 
 impl WinDll {
     pub fn new(info: sys::WinModule) -> WinDll {
-        let mut ret = WinDll{
+        let mut ret = WinDll {
             info: info,
-            name: unsafe { std::ffi::CStr::from_ptr(info.name).to_str().unwrap_or("").to_string() },
+            name: unsafe {
+                std::ffi::CStr::from_ptr(info.name)
+                    .to_str()
+                    .unwrap_or("")
+                    .to_string()
+            },
             export_list: vec![],
         };
-        
+
         ret.info.name = std::ptr::null_mut::<i8>();
 
         ret
@@ -33,7 +37,7 @@ impl WinDll {
     pub fn refresh_exports(&mut self, proc: &sys::WinProc, ctx: sys::WinCtx) -> &mut Self {
         let mut c_list = sys::WinExportList {
             list: std::ptr::null_mut(),
-            size: 0 as u64
+            size: 0 as u64,
         };
 
         unsafe {
@@ -55,5 +59,4 @@ impl WinDll {
 
         self
     }
-
 }

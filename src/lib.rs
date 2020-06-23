@@ -1,5 +1,3 @@
-
-
 //! A library for reading and writing windows memory running on a KVM-based virtual machine
 //!
 //! ## Feature flags
@@ -34,7 +32,7 @@
 //!
 //!         println!("Process List:\nPID\tVIRT\t\t\tPHYS\t\tBASE\t\tNAME");
 //!         for i in &(ctx.refresh_processes().process_list) {
-//!            println!("{:#4x}\t{:#16x}\t{:#9x}\t{:#9x}\t{}", i.proc.pid, i.proc.process, i.proc.physProcess, i.proc.dirBase, i.name); 
+//!            println!("{:#4x}\t{:#16x}\t{:#9x}\t{:#9x}\t{}", i.proc.pid, i.proc.process, i.proc.physProcess, i.proc.dirBase, i.name);
 //!         }
 //!     } else {
 //!         let (eval, estr) = ctx_ret.err().unwrap();
@@ -42,30 +40,28 @@
 //!     }
 //! }
 //! ```
-//! 
+//!
 
-#[cfg(not(any(feature="kmod_rw", feature="internal_rw")))]
+#[cfg(not(any(feature = "kmod_rw", feature = "internal_rw")))]
 pub extern crate vmread_sys as sys;
-#[cfg(feature="internal_rw")]
+#[cfg(feature = "internal_rw")]
 pub extern crate vmread_sys_internal as sys;
-#[cfg(feature="kmod_rw")]
+#[cfg(feature = "kmod_rw")]
 pub extern crate vmread_sys_kmod as sys;
 
-pub mod win_context;
-pub mod win_process;
-pub mod win_dll;
-pub mod win_export;
 pub mod rwlist;
 pub mod tlb;
+pub mod win_context;
+pub mod win_dll;
+pub mod win_export;
+pub mod win_process;
 
-pub use self::win_context::*;
-pub use self::win_process::*;
-pub use self::win_dll::*;
-pub use self::win_export::*;
 pub use self::rwlist::*;
 pub use self::tlb::*;
+pub use self::win_context::*;
+pub use self::win_dll::*;
+pub use self::win_export::*;
+pub use self::win_process::*;
 
-#[cfg(feature="internal_rw")]
+#[cfg(feature = "internal_rw")]
 extern crate libc;
-
-

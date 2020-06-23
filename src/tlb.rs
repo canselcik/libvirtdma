@@ -1,7 +1,5 @@
-
-
 pub struct Tlb {
-    tlbp: *mut sys::tlb_t
+    tlbp: *mut sys::tlb_t,
 }
 
 impl Tlb {
@@ -13,7 +11,7 @@ impl Tlb {
     /// resources on locking mechanisms.
     pub fn from_current_thread() -> Tlb {
         Tlb {
-            tlbp: unsafe { sys::GetTlb() }
+            tlbp: unsafe { sys::GetTlb() },
         }
     }
 
@@ -51,8 +49,6 @@ impl Tlb {
 
     /// Get the default TLB validity in milliseconds
     pub fn get_default_mem_cache_time() -> usize {
-        unsafe {
-            sys::GetDefaultMemCacheTime() as usize
-        }
+        unsafe { sys::GetDefaultMemCacheTime() as usize }
     }
 }

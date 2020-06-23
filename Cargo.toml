@@ -28,5 +28,6 @@ smallvec = "1.2.0"
 members = [
 	"vmread-sys",
 	"vmread-sys-internal",
-	"vmread-sys-kmod"
+	"vmread-sys-kmod",
+	"hypervisor-cheat"
 ]

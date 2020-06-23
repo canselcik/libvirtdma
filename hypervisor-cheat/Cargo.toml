@@ -1,0 +1,8 @@
+[package]
+name = "hypervisor-cheat"
+version = "0.1.0"
+authors = ["main <main@user>"]
+edition = "2018"
+
+[dependencies]
+vmread = { path = "../" }

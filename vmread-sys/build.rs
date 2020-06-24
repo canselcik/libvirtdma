@@ -73,10 +73,6 @@ fn main() {
 
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
-        .clang_arg(match env::var("INCLUDE_DIR") {
-            Ok(additional_include) => format!("-I{}", additional_include).to_string(),
-            Err(_) => "".to_string(),
-        })
         .parse_callbacks(Box::new(bindgen::CargoCallbacks))
         .derive_default(true)
         .whitelist_function(".*Mem.*")

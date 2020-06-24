@@ -115,8 +115,15 @@ impl WinProcess {
         self
     }
 
+    /// Allows checking if the process is valid
+    pub fn is_valid_pe(&self, ctx: sys::WinCtx) -> bool {
+        let peb = self.get_peb(ctx);
+        let pe_magic: [u8; 2] = self.read(&ctx, peb.ImageBaseAddress);
+        return pe_magic[0] == 'M' as u8 && pe_magic[1] == 'Z' as u8;
+    }
+
     /// Get process PEB
-    pub fn get_peb(self, ctx: sys::WinCtx) -> sys::_PEB {
+    pub fn get_peb(&self, ctx: sys::WinCtx) -> sys::_PEB {
         unsafe { sys::GetPeb(&ctx, &self.proc) }
     }
 }

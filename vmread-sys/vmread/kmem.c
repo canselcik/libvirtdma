@@ -5,6 +5,7 @@
 #include <linux/printk.h>
 #include <linux/uaccess.h>
 #include <linux/kallsyms.h>
+#include <linux/vmalloc.h>
 #include "kmem.h"
 
 MODULE_DESCRIPTION("vmread in-kernel helper used to accelerate memory operations");

@@ -3,7 +3,9 @@ vmread-objs := kmem.o
 MCFLAGS += -O3
 ccflags-y += ${MCFLAGS}
 CC += ${MCFLAGS}
-KDIR := /lib/modules/$(shell uname -r)/build
+
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
 ifndef OUT_DIR
 	KOUTPUT := $(PWD)/build/vmread_kmod
 else

@@ -6,5 +6,7 @@ edition = "2018"
 
 [dependencies]
 vmread = { path = "../" }
-vmread-sys = { path = "../vmread-sys" }
+vmread-sys = { features = ["kmod_rw"], path = "../vmread-sys" }
+
 hexdump = "0.1.0"
+memmem = "0.1.1"

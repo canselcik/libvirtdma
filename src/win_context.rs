@@ -96,7 +96,7 @@ impl WinContext {
     /// # Arguments
     ///
     /// * `address` - address to read the data from
-    pub fn read<T>(self, address: u64) -> T {
+    pub fn read<T>(&self, address: u64) -> T {
         let mut ret: T = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
 
         unsafe {

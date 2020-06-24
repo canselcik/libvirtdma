@@ -17,4 +17,4 @@ c:
 	    cargo build --bin hypervisor-cheat
 
 runc: c
-	sudo ./target/debug/hypervisor-cheat
+	cd hypervisor-cheat; sudo ../target/debug/hypervisor-cheat

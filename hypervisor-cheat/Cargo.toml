@@ -6,3 +6,5 @@ edition = "2018"
 
 [dependencies]
 vmread = { path = "../" }
+vmread-sys = { path = "../vmread-sys" }
+hexdump = "0.1.0"

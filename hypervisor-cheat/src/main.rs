@@ -1,237 +1,106 @@
 #![feature(new_uninit)]
+extern crate bsdiff;
+extern crate hex;
 extern crate hexdump;
-extern crate memmem;
+
+extern crate sha2;
 extern crate vmread;
 extern crate vmread_sys;
 
-use memmem::Searcher;
+mod vmsession;
 
+use crate::vmsession::VMSession;
+use sha2::{Digest, Sha256};
+use std::io::Cursor;
+use std::mem::ManuallyDrop;
+use std::time::Instant;
 use vmread::{WinContext, WinDll, WinProcess};
 use vmread_sys::{WinCtx, WinModule};
 
-fn list_kmod(ctx: &mut WinContext, refresh: bool) {
-    if refresh {
-        ctx.refresh_kmods();
-    }
-    println!("======= KERNEL MODULES =======");
-    for kmod in ctx.kmod_list.iter() {
-        let info: &vmread_sys::WinModule = &kmod.info;
-        println!("{}\t{}\t{}", kmod.name, info.baseAddress, info.sizeOfModule);
-    }
-    println!("==== END OF KERNEL MODULES ====")
-}
-
-fn find_kmod(
-    ctx: &mut WinContext,
-    name: &str,
-    case_sensitive: bool,
-    refresh: bool,
-) -> Option<WinDll> {
-    if refresh {
-        ctx.refresh_kmods();
-    }
-    for kmod in ctx.kmod_list.iter() {
-        let matched = match case_sensitive {
-            true => name.eq(&kmod.name),
-            false => name.eq_ignore_ascii_case(&kmod.name),
-        };
-        if matched {
-            return Some(kmod.clone());
+macro_rules! max {
+    ($x:expr) => ( $x );
+    ($x:expr, $($xs:expr),+) => {
+        {
+            use std::cmp::max;
+            max($x, max!( $($xs),+ ))
         }
-    }
-    return None;
+    };
 }
-
-fn find_process(
-    ctx: &mut WinContext,
-    native_ctx: WinCtx,
-    name: &str,
-    case_sensitive: bool,
-    require_alive: bool,
-    refresh: bool,
-) -> Option<WinProcess> {
-    if refresh {
-        ctx.refresh_processes();
-    }
-    let mut proc_list = ctx.process_list.clone();
-    for proc in proc_list.iter_mut() {
-        if require_alive && !proc.is_valid_pe(native_ctx) {
-            continue;
+macro_rules! min {
+    ($x:expr) => ( $x );
+    ($x:expr, $($xs:expr),+) => {
+        {
+            use std::cmp::min;
+            min($x, min!( $($xs),+ ))
         }
-
-        let matched = match case_sensitive {
-            true => name.eq(&proc.name),
-            false => name.eq_ignore_ascii_case(&proc.name),
-        };
-        if matched {
-            return Some(proc.clone().into());
-        }
-    }
-    return None;
-}
-
-fn list_process(ctx: &mut WinContext, native_ctx: WinCtx, require_alive: bool, refresh: bool) {
-    if refresh {
-        ctx.refresh_processes();
-    }
-    println!("======= USER PROCESSES =======");
-    for proc in ctx.process_list.iter() {
-        if require_alive && !proc.is_valid_pe(native_ctx) {
-            continue;
-        }
-        let info: &vmread_sys::WinProc = &proc.proc;
-        println!("{}\t{}\t{}", proc.name, info.dirBase, info.physProcess)
-    }
-    println!("==== END OF USER PROCESSES ====")
-}
-
-fn memmem(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    memmem::TwoWaySearcher::new(needle).search_in(haystack)
-}
-
-fn dump_process_vmem(
-    native_ctx: &WinCtx,
-    proc: &mut WinProcess,
-    mod_info: &WinModule,
-) -> Result<Vec<u8>, i64> {
-    return dump_module_vmem(native_ctx, proc.proc.dirBase, mod_info);
-}
-
-fn dump_kmod_vmem(native_ctx: &WinCtx, mod_info: &WinModule) -> Result<Vec<u8>, i64> {
-    dump_module_vmem(native_ctx, native_ctx.initialProcess.dirBase, mod_info)
-}
-
-fn dump_module_vmem(
-    native_ctx: &WinCtx,
-    dirbase: u64,
-    mod_info: &WinModule,
-) -> Result<Vec<u8>, i64> {
-    let begin = mod_info.baseAddress;
-    let end = begin + mod_info.sizeOfModule;
-    match getmem(native_ctx, dirbase, begin, end) {
-        None => Err(-1),
-        Some(res) => Ok(res.into_vec()),
-    }
-}
-
-fn _getmem(native_ctx: &WinCtx, dirbase: u64, local_begin: u64, begin: u64, end: u64) -> i64 {
-    let len = end - begin;
-    if len < 8 {
-        let data = unsafe { vmread_sys::VMemReadU64(&native_ctx.process, dirbase, begin) };
-        let bit64: [u8; 8] = data.to_le_bytes();
-        let slice = unsafe { std::slice::from_raw_parts_mut(local_begin as *mut u8, len as usize) };
-        for i in 0..len {
-            slice[i as usize] = bit64[i as usize];
-        }
-        return len as i64;
-    }
-    if len <= 0 {
-        return -2;
-    }
-    let mut res: i64 =
-        unsafe { vmread_sys::VMemRead(&native_ctx.process, dirbase, local_begin, begin, len) };
-    if res < 0 {
-        let chunksize = len / 2;
-        res = _getmem(native_ctx, dirbase, local_begin, begin, begin + chunksize);
-        if res < 0 {
-            return res;
-        }
-        res = _getmem(
-            native_ctx,
-            dirbase,
-            local_begin + chunksize,
-            begin + chunksize,
-            end,
-        )
-    }
-    return res;
-}
-
-fn getmem(native_ctx: &WinCtx, dirbase: u64, begin: u64, end: u64) -> Option<Box<[u8]>> {
-    let len = end - begin;
-    let buffer: Box<[std::mem::MaybeUninit<u8>]> = Box::new_uninit_slice(len as usize);
-    let buffer_begin = buffer.as_ptr() as u64;
-    if _getmem(native_ctx, dirbase, buffer_begin, begin, end) > 0 {
-        return Some(unsafe { buffer.assume_init() });
-    }
-    return None;
-}
-
-fn write_all_modules_to_fs(
-    native_ctx: &WinCtx,
-    proc: &mut WinProcess,
-    path_prefix: Option<&str>,
-    refresh: bool,
-) -> Result<(), String> {
-    if refresh {
-        proc.refresh_modules(native_ctx.clone());
-    }
-    if let Some(dir) = path_prefix {
-        std::fs::create_dir_all(dir).unwrap();
-    }
-    // native_ctx.process.mapsSize
-    let module_list = proc.module_list.clone();
-    for module in module_list.iter() {
-        let info: &vmread_sys::WinModule = &module.info;
-        match dump_process_vmem(&native_ctx, proc, info) {
-            Ok(data) => {
-                match std::fs::write(
-                    format!(
-                        "{}/{}",
-                        match path_prefix {
-                            Some(s) => s,
-                            None => ".",
-                        },
-                        module.name,
-                    ),
-                    &data,
-                ) {
-                    Ok(_) => println!("Dumped {}", module.name),
-                    Err(_) => println!("Failed to write while dumping {}", module.name),
-                }
-            }
-            Err(code) => {
-                return Err(format!(
-                    "Dump of {} failed with code: {}",
-                    module.name, code,
-                ))
-            }
-        }
-    }
-    Ok(())
+    };
 }
 
 fn main() {
-    let ctx_ret = vmread::create_context(0);
-    if ctx_ret.is_err() {
-        let (eval, estr) = ctx_ret.err().unwrap();
-        println!("Initialization error {}: {}", eval, estr);
-        return;
+    let mut vm = vmsession::VMSession::new().expect("Failed to initialize");
+
+    match vm.find_kmod("EasyAntiCheat.sys", false, false) {
+        Some(eac) => {
+            let mem = vm
+                .dump_kmod_vmem(&eac.info)
+                .expect("Unable to read EAC kmod memory");
+            std::fs::write(eac.name, &mem).expect("Unable to write file");
+        }
+        None => {}
+    };
+
+    let bufsize: usize = vm.native_ctx.process.mapsSize as usize;
+    let mut whole: ManuallyDrop<Box<[u8]>> = ManuallyDrop::new(unsafe {
+        let ptr: *mut [u8] = std::mem::transmute_copy(&vm.native_ctx.process.mapsStart);
+        std::boxed::Box::from_raw(ptr)
+    });
+    let needle = "Spectre".as_bytes();
+    let mut last_match_offset: usize = 0;
+    let context_len = 50;
+    let mut now = Instant::now();
+    loop {
+        if let Some(sample_offset) = VMSession::memmem(&whole[last_match_offset..], needle) {
+            let rate =
+                sample_offset as f64 / (now.elapsed().as_millis() as f64 / 1000f64) / 100000f64;
+            now = Instant::now();
+
+            let match_offset = last_match_offset + sample_offset;
+            let from = max!(0, match_offset - context_len);
+            let to = min!(bufsize - 1, match_offset + context_len);
+            println!("MATCH AT: {:x} ({:.2} MB/sec)", match_offset, rate);
+            hexdump::hexdump(&whole[from..to]);
+            last_match_offset = match_offset + needle.len();
+        } else {
+            break;
+        }
     }
 
-    let (mut ctx, native_ctx): (WinContext, WinCtx) = ctx_ret.unwrap();
-
-    // let mut eac =
-    //     find_kmod(&mut ctx, "EasyAntiCheat.sys", false, true).expect("Unable to find EAC kmod");
-    // let mem = dump_kmod_vmem(&native_ctx, &eac.info, None).expect("Unable to read EAC kmod mem");
-    // std::fs::write(eac.name, &mem).expect("Unable to write file");
-
-    match find_process(&mut ctx, native_ctx, "ModernWarfare.exe", false, true, true) {
-        Some(mut mw) => {
-            match write_all_modules_to_fs(&native_ctx, &mut mw, Some("../steam.exe/"), true) {
-                Ok(_) => println!("DUMPED OK"),
-                Err(e) => println!("FAILED TO DUMP: {}", e),
-            }
-        }
+    match vm.find_process("ModernWarfare.exe", false, true, true) {
+        Some(mut mw) => vm
+            .write_all_modules_to_fs(&mut mw, Some("../mw.exe/fast/"), true)
+            .expect("failed to write"),
         None => println!("Unable to find ModernWarfare.exe"),
-    }
+    };
 
-    ctx.refresh_kmods();
-    for kmod in ctx.kmod_list.iter() {
-        let res = dump_kmod_vmem(&native_ctx, &kmod.info);
-        match res {
-            Ok(data) => std::fs::write(format!("../kernel/{}", kmod.name), &data).unwrap(),
-            Err(e) => println!("Failed to dump {}: {}", kmod.name, e),
-        }
-    }
+    // vm.ctx.refresh_kmods();
+    // println!("Reading kmods...");
+    // let mut hasher = Sha256::new();
+    // for kmod in vm.ctx.kmod_list.iter() {
+    //     let res1 = dump_kmod_vmem(&vm.native_ctx, &kmod.info, false).expect("failed fast dump");
+    //     let res2 = dump_kmod_vmem(&vm.native_ctx, &kmod.info, true).expect("failed slow dump");
+    //
+    //     hasher.update(&res1);
+    //     let hash1 = hex::encode(hasher.finalize_reset());
+    //
+    //     hasher.update(&res2);
+    //     let hash2 = hex::encode(hasher.finalize_reset());
+    //
+    //     if hash1 != hash2 {
+    //         println!(
+    //             "DIFF {} (lenMismatch: {})",
+    //             kmod.name,
+    //             res1.len() - res2.len(),
+    //         );
+    //     }
+    // }
 }

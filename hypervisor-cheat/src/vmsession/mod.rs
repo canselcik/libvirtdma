@@ -1,8 +1,12 @@
+#![allow(dead_code)]
 extern crate memmem;
+extern crate pelite;
+extern crate regex;
 extern crate vmread;
 extern crate vmread_sys;
-use memmem::Searcher;
 
+use self::regex::bytes::Regex;
+use memmem::Searcher;
 use vmread::{WinContext, WinDll, WinProcess};
 use vmread_sys::{WinCtx, WinModule};
 
@@ -11,7 +15,27 @@ pub struct VMSession {
     pub native_ctx: WinCtx,
 }
 
+use std::mem::ManuallyDrop;
+use std::str;
+
+fn str_chunks<'a>(s: &'a str, n: usize) -> Box<dyn Iterator<Item = &'a str> + 'a> {
+    Box::new(s.as_bytes().chunks(n).map(|c| str::from_utf8(c).unwrap()))
+}
+
 impl VMSession {
+    pub fn mmap_physmem_as<T>(&self, phys_addr: u64) -> Option<ManuallyDrop<Box<T>>> {
+        let start = self.native_ctx.process.mapsStart;
+        let bufsize: usize = self.native_ctx.process.mapsSize as usize;
+        let sz = std::mem::size_of::<T>();
+        if phys_addr + sz as u64 > start + bufsize as u64 {
+            return None;
+        }
+        unsafe {
+            let ptr: *mut T = std::mem::transmute(start + phys_addr);
+            Some(ManuallyDrop::new(std::boxed::Box::from_raw(ptr)))
+        }
+    }
+
     pub fn new() -> Result<VMSession, String> {
         let ctx_ret = vmread::create_context(0);
         if ctx_ret.is_err() {
@@ -19,7 +43,7 @@ impl VMSession {
             Err(format!("Initialization error {}: {}", eval, estr))
         } else {
             match ctx_ret {
-                Ok((mut ctx, native_ctx)) => Ok(VMSession { ctx, native_ctx }),
+                Ok((ctx, native_ctx)) => Ok(VMSession { ctx, native_ctx }),
                 Err((eval, estr)) => Err(format!("Initialization error {}: {}", eval, estr)),
             }
         }
@@ -116,6 +140,46 @@ impl VMSession {
         }
     }
 
+    pub fn get_process_sections(&self, proc: &mut WinProcess, refresh: bool) {
+        if refresh {
+            proc.refresh_modules(self.native_ctx);
+        }
+        match proc.module_list.iter().find(|m| m.name == proc.name) {
+            None => return,
+            Some(base) => {
+                let dos_header: pelite::image::IMAGE_DOS_HEADER =
+                    proc.read(&self.native_ctx, base.info.baseAddress);
+                assert_eq!(dos_header.e_magic, pelite::image::IMAGE_DOS_SIGNATURE);
+
+                let nt_header_addr = base.info.baseAddress + dos_header.e_lfanew as u64;
+                let new_exec_header: pelite::image::IMAGE_NT_HEADERS64 =
+                    proc.read(&self.native_ctx, nt_header_addr);
+                assert_eq!(
+                    new_exec_header.Signature,
+                    pelite::image::IMAGE_NT_HEADERS_SIGNATURE
+                );
+
+                let section_hdr_addr = nt_header_addr
+                    + std::mem::size_of::<pelite::image::IMAGE_NT_HEADERS64>() as u64;
+                for section_idx in 0..new_exec_header.FileHeader.NumberOfSections {
+                    let section_header: pelite::image::IMAGE_SECTION_HEADER = proc.read(
+                        &self.native_ctx,
+                        section_hdr_addr
+                            + (section_idx as u64
+                                * std::mem::size_of::<pelite::image::IMAGE_NT_HEADERS64>() as u64),
+                    );
+
+                    println!(
+                        "section_header: {} {:#?}",
+                        section_header.Name, section_header
+                    );
+                    // let section_size = next_section.VirtualAddress - data_header.VirtualAddress;
+                    // println!("section_size: 0x{:x}", section_header.VirtualSize);
+                }
+            }
+        }
+    }
+
     fn _getvmem(&self, dirbase: u64, local_begin: u64, begin: u64, end: u64) -> i64 {
         let len = end - begin;
         if len <= 8 {
@@ -157,6 +221,73 @@ impl VMSession {
 
     pub fn memmem(haystack: &[u8], needle: &[u8]) -> Option<usize> {
         memmem::TwoWaySearcher::new(needle).search_in(haystack)
+    }
+
+    pub fn find_module_from_addr(&self, modules: &[WinDll], addr: u64) -> Option<WinDll> {
+        for m in modules.iter() {
+            let begin = m.info.baseAddress;
+            let end = begin + m.info.sizeOfModule;
+            if addr >= begin && addr <= end {
+                return Some(m.clone());
+            }
+        }
+        return None;
+    }
+
+    pub fn pmemmem(haystack: &[u8], needle_string: &str) -> Result<Vec<usize>, String> {
+        let mut restr = String::from("(?-u:");
+        for ch in str_chunks(&needle_string, 2) {
+            let chunk: Vec<char> = ch.chars().collect();
+            if chunk.len() != 2 {
+                return Err("input needle_string without even length".to_string());
+            }
+            let (first, second) = (*chunk.get(0).unwrap(), *chunk.get(1).unwrap());
+            let qmPresent = first == '?' || second == '?';
+            let wildcard = first == '?' && second == '?';
+            if qmPresent && !wildcard {
+                return Err("needle_string has wildcards of uneven length".to_string());
+            }
+            if wildcard {
+                restr += ".";
+            } else {
+                restr += "\\x";
+                restr += ch;
+            }
+        }
+        restr += ")";
+
+        let re: Regex = match Regex::new(&restr) {
+            Ok(r) => r,
+            Err(e) => return Err(e.to_string()),
+        };
+        Ok(re.find_iter(haystack).map(|f| f.start()).collect())
+    }
+
+    pub fn memmemn(haystack: &[u8], needle: &[u8], max_opt: Option<usize>) -> Vec<usize> {
+        match VMSession::memmem(haystack, needle) {
+            None => vec![],
+            Some(offset) => {
+                let res = vec![offset];
+                match max_opt {
+                    Some(1) => res,
+                    other => {
+                        let updatedn = match other {
+                            Some(x) => Some(x - 1),
+                            None => None,
+                        };
+                        let needle_end = offset + needle.len();
+                        let mut downstream_results =
+                            VMSession::memmemn(&haystack[needle_end..], needle, updatedn);
+                        for res in downstream_results.iter_mut() {
+                            *res += needle_end;
+                        }
+                        let mut res = vec![offset];
+                        res.append(&mut downstream_results);
+                        res
+                    }
+                }
+            }
+        }
     }
 
     pub fn write_all_modules_to_fs(
@@ -201,4 +332,22 @@ impl VMSession {
         }
         Ok(())
     }
+}
+
+#[test]
+pub fn test_pmemmem() {
+    let re: Regex = Regex::new(
+    r"(?-u:\x48\x89\x05....\x48\x83\xc4\x38\xc3\x48\xc7\x05........\x48\x83\xc4\x38\xc3\xcc\xcc\xcc\xcc\xcc\x48)"
+    ).unwrap();
+    let md1: Vec<u8> = vec![
+        0x48, 0x89, 0x05, 0xAA, 0xAB, 0xAC, 0xAD, 0x48, 0x83, 0xc4, 0x38, 0xc3, 0x48, 0xc7, 0x05,
+        0xAA, 0xAB, 0xAC, 0xAD, 0xAA, 0xAB, 0xAC, 0xAD, 0x48, 0x83, 0xc4, 0x38, 0xc3, 0xcc, 0xcc,
+        0xcc, 0xcc, 0xcc, 0x48,
+    ];
+    let mut m = false;
+    for matched in re.find_iter(&md1) {
+        m = true;
+        println!("MATCHED: {:?}", matched);
+    }
+    assert!(m);
 }

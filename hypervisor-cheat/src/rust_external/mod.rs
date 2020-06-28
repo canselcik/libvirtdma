@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+use crate::vmsession::VMSession;
+use std::marker::PhantomData;
+
 pub type BaseNetworkableClassPtr = u64;
 pub type MonitorPtr = u64;
 
@@ -22,15 +25,29 @@ pub struct BaseNetworkable {
     pub(crate) prefabNameWithoutExtensionStrRef: u64,
 }
 
-extern crate libc;
+pub struct PtrForeignProc<T> {
+    ptr: u64,
+    proc: std::sync::Arc<VMSession>,
+    typ: PhantomData<T>,
+}
+
+impl<T> PtrForeignProc<T> {
+    pub fn new(ptr: u64, proc: std::sync::Arc<VMSession>) -> PtrForeignProc<T> {
+        return PtrForeignProc {
+            ptr,
+            proc,
+            typ: PhantomData,
+        };
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GameObjectManager {
-    pub(crate) lastTaggedObject: libc::uintptr_t, // *mut LastObjectBase
-    pub(crate) taggedObjects: libc::uintptr_t,    // *mut BaseObject
-    pub(crate) lastActiveObject: libc::uintptr_t, // *mut LastObjectBase
-    pub(crate) activeObjects: libc::uintptr_t,    // *mut BaseObject
+    pub(crate) lastTaggedObject: *mut LastObjectBase,
+    pub(crate) taggedObjects: *mut BaseObject,
+    pub(crate) lastActiveObject: *mut LastObjectBase,
+    pub(crate) activeObjects: *mut BaseObject,
 }
 
 #[repr(C)]

@@ -2,27 +2,47 @@
 extern crate memmem;
 extern crate pelite;
 extern crate regex;
+extern crate term_table;
 extern crate vmread;
 extern crate vmread_sys;
 
 use self::regex::bytes::Regex;
 use memmem::Searcher;
+use std::sync::{Arc, RwLock};
 use vmread::{WinContext, WinDll, WinProcess};
 use vmread_sys::{WinCtx, WinModule};
 
 pub struct VMSession {
+    selfref: RwLock<Option<Arc<Self>>>,
     pub ctx: WinContext,
     pub native_ctx: WinCtx,
 }
 
+use self::term_table::row::Row;
+
 use std::mem::ManuallyDrop;
 use std::str;
+use term_table::table_cell::{Alignment, TableCell};
+use term_table::{Table, TableStyle};
 
 fn str_chunks<'a>(s: &'a str, n: usize) -> Box<dyn Iterator<Item = &'a str> + 'a> {
     Box::new(s.as_bytes().chunks(n).map(|c| str::from_utf8(c).unwrap()))
 }
 
 impl VMSession {
+    unsafe fn escape_hatch(&self) -> &mut Self {
+        std::mem::transmute_copy(&self)
+    }
+
+    pub fn as_mut(&self) -> &mut Self {
+        unsafe { self.escape_hatch() }
+    }
+
+    pub fn clone(&self) -> Arc<Self> {
+        let arc = self.selfref.read().unwrap();
+        Arc::clone(arc.as_ref().unwrap())
+    }
+
     pub fn mmap_physmem_as<T>(&self, phys_addr: u64) -> Option<ManuallyDrop<Box<T>>> {
         let start = self.native_ctx.process.mapsStart;
         let bufsize: usize = self.native_ctx.process.mapsSize as usize;
@@ -36,14 +56,22 @@ impl VMSession {
         }
     }
 
-    pub fn new() -> Result<VMSession, String> {
+    pub fn new() -> Result<Arc<VMSession>, String> {
         let ctx_ret = vmread::create_context(0);
         if ctx_ret.is_err() {
             let (eval, estr) = ctx_ret.err().unwrap();
             Err(format!("Initialization error {}: {}", eval, estr))
         } else {
             match ctx_ret {
-                Ok((ctx, native_ctx)) => Ok(VMSession { ctx, native_ctx }),
+                Ok((ctx, native_ctx)) => {
+                    let arc = Arc::new(VMSession {
+                        ctx,
+                        native_ctx,
+                        selfref: RwLock::new(None),
+                    });
+                    *arc.selfref.write().unwrap() = Some(Arc::clone(&arc));
+                    Ok(arc)
+                }
                 Err((eval, estr)) => Err(format!("Initialization error {}: {}", eval, estr)),
             }
         }
@@ -53,12 +81,36 @@ impl VMSession {
         if refresh {
             self.ctx.refresh_kmods();
         }
-        println!("======= KERNEL MODULES =======");
+
+        let mut table = Table::new();
+        table.max_column_width = 45;
+        table.style = TableStyle::extended();
+
+        table.add_row(Row::new(vec![TableCell::new_with_alignment(
+            "Kernel Modules",
+            3,
+            Alignment::Center,
+        )]));
+
+        table.add_row(Row::new(vec![
+            TableCell::new_with_alignment("Name", 1, Alignment::Center),
+            TableCell::new_with_alignment("Base Address", 1, Alignment::Center),
+            TableCell::new_with_alignment("Size", 1, Alignment::Center),
+        ]));
+
+        let mut add_entry = |name, dirbase, phys| {
+            table.add_row(Row::new(vec![
+                TableCell::new_with_alignment(name, 1, Alignment::Left),
+                TableCell::new_with_alignment(format!("0x{:x}", dirbase), 1, Alignment::Right),
+                TableCell::new_with_alignment(format!("0x{:x}", phys), 1, Alignment::Right),
+            ]));
+        };
+
         for kmod in self.ctx.kmod_list.iter() {
             let info: &vmread_sys::WinModule = &kmod.info;
-            println!("{}\t{}\t{}", kmod.name, info.baseAddress, info.sizeOfModule);
+            add_entry(&kmod.name, info.baseAddress, info.sizeOfModule);
         }
-        println!("==== END OF KERNEL MODULES ====")
+        println!("{}", table.render());
     }
 
     pub fn find_kmod(&mut self, name: &str, case_sensitive: bool, refresh: bool) -> Option<WinDll> {
@@ -108,15 +160,38 @@ impl VMSession {
         if refresh {
             self.ctx.refresh_processes();
         }
-        println!("======= USER PROCESSES =======");
+
+        let mut table = Table::new();
+        table.max_column_width = 45;
+        table.style = TableStyle::extended();
+
+        table.add_row(Row::new(vec![TableCell::new_with_alignment(
+            "Processes",
+            3,
+            Alignment::Center,
+        )]));
+
+        table.add_row(Row::new(vec![
+            TableCell::new_with_alignment("Name", 1, Alignment::Center),
+            TableCell::new_with_alignment("Dirbase", 1, Alignment::Center),
+            TableCell::new_with_alignment("Physical Addr", 1, Alignment::Center),
+        ]));
+
+        let mut add_entry = |name, dirbase, phys| {
+            table.add_row(Row::new(vec![
+                TableCell::new_with_alignment(name, 1, Alignment::Left),
+                TableCell::new_with_alignment(format!("0x{:x}", dirbase), 1, Alignment::Right),
+                TableCell::new_with_alignment(format!("0x{:x}", phys), 1, Alignment::Right),
+            ]));
+        };
         for proc in self.ctx.process_list.iter() {
             if require_alive && !proc.is_valid_pe(self.native_ctx) {
                 continue;
             }
             let info: &vmread_sys::WinProc = &proc.proc;
-            println!("{}\t{}\t{}", proc.name, info.dirBase, info.physProcess)
+            add_entry(&proc.name, info.dirBase, info.physProcess);
         }
-        println!("==== END OF USER PROCESSES ====")
+        println!("{}", table.render());
     }
 
     pub fn dump_process_vmem(
@@ -140,7 +215,43 @@ impl VMSession {
         }
     }
 
-    pub fn get_process_sections(&self, proc: &mut WinProcess, refresh: bool) {
+    pub fn list_process_modules(&self, proc: &mut WinProcess, refresh: bool) {
+        if refresh {
+            proc.refresh_modules(self.native_ctx);
+        }
+        let mut table = Table::new();
+        table.max_column_width = 45;
+        table.style = TableStyle::extended();
+
+        table.add_row(Row::new(vec![TableCell::new_with_alignment(
+            format!("Modules of {}", proc.name),
+            3,
+            Alignment::Center,
+        )]));
+
+        table.add_row(Row::new(vec![
+            TableCell::new_with_alignment("Name", 1, Alignment::Center),
+            TableCell::new_with_alignment("Start", 1, Alignment::Center),
+            TableCell::new_with_alignment("End", 1, Alignment::Center),
+        ]));
+
+        let mut add_entry = |name, dirbase, phys| {
+            table.add_row(Row::new(vec![
+                TableCell::new_with_alignment(name, 1, Alignment::Left),
+                TableCell::new_with_alignment(format!("0x{:x}", dirbase), 1, Alignment::Right),
+                TableCell::new_with_alignment(format!("0x{:x}", phys), 1, Alignment::Right),
+            ]));
+        };
+
+        for m in proc.module_list.iter() {
+            let begin = m.info.baseAddress;
+            let end = begin + m.info.sizeOfModule;
+            add_entry(&m.name, begin, end);
+        }
+        println!("{}", table.render());
+    }
+
+    pub fn list_process_sections(&self, proc: &mut WinProcess, refresh: bool) {
         if refresh {
             proc.refresh_modules(self.native_ctx);
         }

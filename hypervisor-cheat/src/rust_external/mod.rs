@@ -1,8 +1,5 @@
 #![allow(dead_code)]
 
-use crate::vmsession::VMSession;
-use std::marker::PhantomData;
-
 pub type BaseNetworkableClassPtr = u64;
 pub type MonitorPtr = u64;
 
@@ -23,22 +20,6 @@ pub struct BaseNetworkable {
     pub(crate) isDestroyed_k__BackingField: bool,
     pub(crate) prefabNameStrRef: u64,
     pub(crate) prefabNameWithoutExtensionStrRef: u64,
-}
-
-pub struct PtrForeignProc<T> {
-    ptr: u64,
-    proc: std::sync::Arc<VMSession>,
-    typ: PhantomData<T>,
-}
-
-impl<T> PtrForeignProc<T> {
-    pub fn new(ptr: u64, proc: std::sync::Arc<VMSession>) -> PtrForeignProc<T> {
-        return PtrForeignProc {
-            ptr,
-            proc,
-            typ: PhantomData,
-        };
-    }
 }
 
 #[repr(C)]

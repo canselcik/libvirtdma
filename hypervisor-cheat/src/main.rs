@@ -1,6 +1,7 @@
 #![feature(new_uninit)]
 #![allow(unused_macros, non_snake_case)]
 extern crate bsdiff;
+extern crate byteorder;
 extern crate hex;
 extern crate hexdump;
 extern crate linefeed;
@@ -13,6 +14,7 @@ extern crate vmread_sys;
 
 use crate::rust_external::*;
 use crate::vmsession::VMSession;
+use byteorder::ByteOrder;
 use vmread::{WinDll, WinProcess};
 
 mod rust_external;
@@ -35,6 +37,43 @@ macro_rules! min {
             min($x, min!( $($xs),+ ))
         }
     };
+}
+
+fn parse_u64(s: &str, le: bool) -> Option<u64> {
+    match s.strip_prefix("0x") {
+        None => match s.parse::<u64>() {
+            Ok(r) => Some(r),
+            Err(_) => None,
+        },
+        Some(h) => match hex::decode(format!("{}{}", "0".repeat(16 - h.len()), h)) {
+            Ok(r) => Some(if le {
+                byteorder::LittleEndian::read_u64(&r)
+            } else {
+                byteorder::BigEndian::read_u64(&r)
+            }),
+            Err(_) => None,
+        },
+    }
+}
+
+#[test]
+fn test_parse_u64() {
+    // LE flag is invariant over decimal input
+    assert_eq!(parse_u64("123", false), Some(123));
+    assert_eq!(parse_u64("123", true), Some(123));
+
+    // Prefix works as expected in BE mode
+    assert_eq!(parse_u64("0x4A", false), Some(74));
+
+    assert_eq!(
+        parse_u64("0xCAFEBABEDEADBEEF", false),
+        Some(14627333968688430831)
+    );
+    assert_eq!(
+        parse_u64("0x0000000004a3f6e1", false),
+        parse_u64("0x4a3f6e1", false),
+    );
+    assert_eq!(parse_u64("0x0000000004a3f6e1", false), Some(77854433));
 }
 
 fn kmod_to_file(vm: &mut VMSession, cmd: &[String]) {
@@ -197,6 +236,59 @@ fn main() {
                         "quit" | "exit" => std::process::exit(0),
                         "kmod_to_file" => kmod_to_file(vm.as_mut(), &parts),
                         "list_kmods" => vm.as_mut().list_kmods(true),
+                        "memread" => {
+                            if parts.len() != 3 {
+                                println!("usage: pmemread <hPA> <hSize>");
+                            } else {
+                                let hPA = match parse_u64(&parts[1], false) {
+                                    Some(h) => h,
+                                    None => {
+                                        println!("unable to parse hPA");
+                                        return;
+                                    }
+                                };
+                                let hSize = match parse_u64(&parts[2], false) {
+                                    Some(h) => h,
+                                    None => {
+                                        println!("unable to parse hSize");
+                                        return;
+                                    }
+                                };
+                                let mut data = vec![0u8; hSize as usize];
+                                data = vm.read_physical(hPA);
+                                hexdump::hexdump(&data);
+                            }
+                        }
+                        "pmemread" => {
+                            if parts.len() != 4 {
+                                println!("usage: pmemread explorer.exe <hVA> <hSize>");
+                            } else {
+                                let procname = &parts[1];
+                                let hVA = match parse_u64(&parts[2], false) {
+                                    Some(h) => h,
+                                    None => {
+                                        println!("unable to parse hVA");
+                                        return;
+                                    }
+                                };
+                                let hSize = match parse_u64(&parts[3], false) {
+                                    Some(h) => h,
+                                    None => {
+                                        println!("unable to parse hSize");
+                                        return;
+                                    }
+                                };
+                                match vm.as_mut().find_process(procname, false, true, true) {
+                                    None => println!("Unable to find a process with matching name"),
+                                    Some(proc) => {
+                                        match vm.getvmem(proc.proc.dirBase, hVA, hVA + hSize) {
+                                            None => println!("Unable to read memory"),
+                                            Some(data) => hexdump::hexdump(&data),
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         "list_processes" => vm.as_mut().list_process(true, true),
                         "list_process_modules" => {
                             if parts.len() != 2 {
@@ -208,13 +300,36 @@ fn main() {
                                 }
                             }
                         }
-                        "list_process_sections" => {
+                        "heaps" => {
+                            if parts.len() != 2 {
+                                println!("Usage: heaps explorer.exe")
+                            } else {
+                                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                                    None => println!("Unable to find a process with matching name"),
+                                    Some(proc) => vm.get_process_heaps(&proc),
+                                }
+                            }
+                        }
+                        "peb" => {
+                            if parts.len() != 2 {
+                                println!("Usage: peb explorer.exe")
+                            } else {
+                                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                                    None => println!("Unable to find a process with matching name"),
+                                    Some(proc) => {
+                                        let peb = vm.get_full_peb(&proc);
+                                        println!("PEB: {:#?}", peb);
+                                    }
+                                }
+                            }
+                        }
+                        "pinspect" => {
                             if parts.len() != 2 {
                                 println!("Usage: list_process_sections explorer.exe")
                             } else {
                                 match vm.as_mut().find_process(&parts[1], false, true, true) {
                                     None => println!("Unable to find a process with matching name"),
-                                    Some(mut proc) => vm.list_process_sections(&mut proc, true),
+                                    Some(mut proc) => vm.pinspect(&mut proc, true),
                                 }
                             }
                         }

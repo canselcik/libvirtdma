@@ -7,23 +7,55 @@ extern crate vmread;
 extern crate vmread_sys;
 
 use self::regex::bytes::Regex;
+use self::term_table::row::Row;
+use crate::vmsession::fullpeb::{FullPEB, PROCESS_HEAP_ENTRY};
 use memmem::Searcher;
+use pelite::image::{
+    IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS64, IMAGE_NT_HEADERS_SIGNATURE,
+    IMAGE_NT_OPTIONAL_HDR64_MAGIC,
+};
+use std::marker::PhantomData;
+use std::mem::size_of;
+use std::mem::ManuallyDrop;
+use std::str;
 use std::sync::{Arc, RwLock};
+use term_table::table_cell::{Alignment, TableCell};
+use term_table::{Table, TableStyle};
 use vmread::{WinContext, WinDll, WinProcess};
-use vmread_sys::{WinCtx, WinModule};
+use vmread_sys::{WinCtx, WinModule, PEB};
+
+mod fullpeb;
+
+pub struct PtrForeign<T> {
+    ptr: u64,
+    vm: std::sync::Arc<VMSession>,
+    proc: Option<WinProcess>,
+    typ: PhantomData<T>,
+}
+
+impl<T> PtrForeign<T> {
+    pub fn new(ptr: u64, vm: std::sync::Arc<VMSession>, proc: Option<WinProcess>) -> PtrForeign<T> {
+        return PtrForeign {
+            ptr,
+            vm,
+            proc,
+            typ: PhantomData,
+        };
+    }
+
+    pub fn read(&self) -> T {
+        match &self.proc {
+            Some(proc) => proc.read(&self.vm.native_ctx, self.ptr),
+            None => self.vm.ctx.read(self.ptr),
+        }
+    }
+}
 
 pub struct VMSession {
-    selfref: RwLock<Option<Arc<Self>>>,
+    self_ref: RwLock<Option<Arc<Self>>>,
     pub ctx: WinContext,
     pub native_ctx: WinCtx,
 }
-
-use self::term_table::row::Row;
-
-use std::mem::ManuallyDrop;
-use std::str;
-use term_table::table_cell::{Alignment, TableCell};
-use term_table::{Table, TableStyle};
 
 fn str_chunks<'a>(s: &'a str, n: usize) -> Box<dyn Iterator<Item = &'a str> + 'a> {
     Box::new(s.as_bytes().chunks(n).map(|c| str::from_utf8(c).unwrap()))
@@ -39,14 +71,14 @@ impl VMSession {
     }
 
     pub fn clone(&self) -> Arc<Self> {
-        let arc = self.selfref.read().unwrap();
+        let arc = self.self_ref.read().unwrap();
         Arc::clone(arc.as_ref().unwrap())
     }
 
     pub fn mmap_physmem_as<T>(&self, phys_addr: u64) -> Option<ManuallyDrop<Box<T>>> {
         let start = self.native_ctx.process.mapsStart;
         let bufsize: usize = self.native_ctx.process.mapsSize as usize;
-        let sz = std::mem::size_of::<T>();
+        let sz = size_of::<T>();
         if phys_addr + sz as u64 > start + bufsize as u64 {
             return None;
         }
@@ -67,9 +99,9 @@ impl VMSession {
                     let arc = Arc::new(VMSession {
                         ctx,
                         native_ctx,
-                        selfref: RwLock::new(None),
+                        self_ref: RwLock::new(None),
                     });
-                    *arc.selfref.write().unwrap() = Some(Arc::clone(&arc));
+                    *arc.self_ref.write().unwrap() = Some(Arc::clone(&arc));
                     Ok(arc)
                 }
                 Err((eval, estr)) => Err(format!("Initialization error {}: {}", eval, estr)),
@@ -251,44 +283,145 @@ impl VMSession {
         println!("{}", table.render());
     }
 
-    pub fn list_process_sections(&self, proc: &mut WinProcess, refresh: bool) {
+    pub fn get_peb(&self, proc: &WinProcess) -> PEB {
+        proc.get_peb(self.native_ctx)
+    }
+
+    pub fn get_full_peb(&self, proc: &WinProcess) -> FullPEB {
+        let ptr: u64 = self
+            .ctx
+            .read(proc.proc.physProcess + self.native_ctx.offsets.peb as u64);
+        // let pPEB: PtrForeign<FullPEB> = PtrForeign::new(ptr, self.clone(), Some(proc.clone()));
+        // let peb: FullPEB = pPEB.read();
+        proc.read(&self.native_ctx, ptr)
+    }
+
+    pub fn get_process_heaps(&self, proc: &WinProcess) {
+        let peb = self.get_full_peb(proc);
+        println!("PEB->NumberOfHeaps: {}", peb.NumberOfHeaps);
+        println!("PEB->ProcessHeap: 0x{:x}", peb.ProcessHeap);
+        println!("PEB->ProcessHeaps: 0x{:x}", peb.ProcessHeaps);
+        for heap_index in 0..peb.NumberOfHeaps {
+            let offset = heap_index as usize * size_of::<PROCESS_HEAP_ENTRY>();
+            let heap: PROCESS_HEAP_ENTRY =
+                proc.read(&self.native_ctx, peb.ProcessHeaps + offset as u64);
+            println!(
+                "{}",
+                heap.as_table(Some(format!("Heap Entry {}", heap_index)))
+            );
+        }
+    }
+
+    pub fn pinspect(&self, proc: &mut WinProcess, refresh: bool) {
+        let (match_str, mismatch_str) = ("match".to_string(), "MISMATCH".to_string());
         if refresh {
             proc.refresh_modules(self.native_ctx);
         }
-        match proc.module_list.iter().find(|m| m.name == proc.name) {
-            None => return,
-            Some(base) => {
-                let dos_header: pelite::image::IMAGE_DOS_HEADER =
-                    proc.read(&self.native_ctx, base.info.baseAddress);
-                assert_eq!(dos_header.e_magic, pelite::image::IMAGE_DOS_SIGNATURE);
 
-                let nt_header_addr = base.info.baseAddress + dos_header.e_lfanew as u64;
-                let new_exec_header: pelite::image::IMAGE_NT_HEADERS64 =
-                    proc.read(&self.native_ctx, nt_header_addr);
-                assert_eq!(
-                    new_exec_header.Signature,
-                    pelite::image::IMAGE_NT_HEADERS_SIGNATURE
-                );
-
-                let section_hdr_addr = nt_header_addr
-                    + std::mem::size_of::<pelite::image::IMAGE_NT_HEADERS64>() as u64;
-                for section_idx in 0..new_exec_header.FileHeader.NumberOfSections {
-                    let section_header: pelite::image::IMAGE_SECTION_HEADER = proc.read(
-                        &self.native_ctx,
-                        section_hdr_addr
-                            + (section_idx as u64
-                                * std::mem::size_of::<pelite::image::IMAGE_NT_HEADERS64>() as u64),
-                    );
-
-                    println!(
-                        "section_header: {} {:#?}",
-                        section_header.Name, section_header
-                    );
-                    // let section_size = next_section.VirtualAddress - data_header.VirtualAddress;
-                    // println!("section_size: 0x{:x}", section_header.VirtualSize);
-                }
+        let base = match proc.module_list.iter().find(|m| m.name == proc.name) {
+            None => {
+                println!("Unable to find the base module");
+                return;
             }
-        }
+            Some(base) => base,
+        };
+
+        let mut overview = Table::new();
+        overview.max_column_width = 45;
+        overview.style = TableStyle::extended();
+
+        overview.add_row(Row::new(vec![TableCell::new_with_alignment(
+            format!("Overview of {}", proc.name),
+            2,
+            Alignment::Center,
+        )]));
+
+        let dos_header: IMAGE_DOS_HEADER = proc.read(&self.native_ctx, base.info.baseAddress);
+
+        let mut add_overview_row = |text, val| {
+            overview.add_row(Row::new(vec![
+                TableCell::new_with_alignment(text, 1, Alignment::Left),
+                TableCell::new_with_alignment(val, 1, Alignment::Right),
+            ]));
+        };
+        add_overview_row(
+            "DOS Magic (MZ)",
+            if dos_header.e_magic == IMAGE_DOS_SIGNATURE {
+                match_str.clone()
+            } else {
+                mismatch_str.clone()
+            },
+        );
+
+        let nt_header_addr = base.info.baseAddress + dos_header.e_lfanew as u64;
+        let new_exec_header: IMAGE_NT_HEADERS64 = proc.read(&self.native_ctx, nt_header_addr);
+        add_overview_row(
+            "NT Header (PE\\0\\0)",
+            if new_exec_header.Signature == IMAGE_NT_HEADERS_SIGNATURE {
+                match_str.clone()
+            } else {
+                mismatch_str.clone()
+            },
+        );
+        add_overview_row(
+            "Optional64Hdr Magic",
+            if new_exec_header.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC {
+                match_str.clone()
+            } else {
+                mismatch_str.clone()
+            },
+        );
+
+        add_overview_row(
+            "RVA of NT Header (e_lfanew)",
+            format!("0x{:x}", dos_header.e_lfanew),
+        );
+        add_overview_row(
+            "Pointer to Symbol Table",
+            format!("0x{:x}", new_exec_header.FileHeader.PointerToSymbolTable),
+        );
+        add_overview_row(
+            "Base of Code",
+            format!("0x{:x}", new_exec_header.OptionalHeader.BaseOfCode),
+        );
+        add_overview_row(
+            "Size of Code",
+            format!("0x{:x}", new_exec_header.OptionalHeader.SizeOfCode),
+        );
+        add_overview_row(
+            "Address of EntryPoint",
+            format!("0x{:x}", new_exec_header.OptionalHeader.AddressOfEntryPoint),
+        );
+        add_overview_row(
+            "ImageBase",
+            format!("0x{:x}", new_exec_header.OptionalHeader.ImageBase),
+        );
+
+        // let section_count = new_exec_header.FileHeader.NumberOfSections;
+        // add_overview_row("Section Count", format!("{}", section_count));
+        // add_overview_row(
+        //     "Symbol Count",
+        //     format!("{}", new_exec_header.FileHeader.NumberOfSymbols),
+        // );
+
+        println!("{}", overview.render());
+        // let section_hdr_addr = nt_header_addr + size_of::<IMAGE_NT_HEADERS64>() as u64;
+        // for section_idx in 0..section_count {
+        //     let section_header: pelite::image::IMAGE_SECTION_HEADER = proc.read(
+        //         &self.native_ctx,
+        //         section_hdr_addr + (section_idx as u64 * size_of::<pelite::image::IMAGE_SECTION_HEADER>() as u64),
+        //     );
+        //     println!(
+        //         "section_header: {} {:#?}",
+        //         section_header.Name, section_header
+        //     );
+        //     // let section_size = next_section.VirtualAddress - data_header.VirtualAddress;
+        //     // println!("section_size: 0x{:x}", section_header.VirtualSize);
+        // }
+    }
+
+    pub fn read_physical<T>(&self, address: u64) -> T {
+        self.ctx.read(address)
     }
 
     fn _getvmem(&self, dirbase: u64, local_begin: u64, begin: u64, end: u64) -> i64 {

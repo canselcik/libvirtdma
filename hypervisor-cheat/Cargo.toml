@@ -10,6 +10,7 @@ vmread-sys = { features = ["kmod_rw"], path = "../vmread-sys" }
 hexdump = "0.1.0"
 memmem = "0.1.1"
 sha2 = "0.9.1"
+byteorder = "1"
 hex = "0.4.2"
 bsdiff = "0.1.3"
 regex = "1.3.9"

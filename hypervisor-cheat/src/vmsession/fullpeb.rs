@@ -1,14 +1,7 @@
-use super::term_table::row::Row;
-use super::term_table::table_cell::{Alignment, TableCell};
-use super::term_table::{Table, TableStyle};
-
-#[derive(Copy, Clone)]
-pub struct Bytes1024([u8; 1024]);
-impl std::fmt::Debug for Bytes1024 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bytes1024(...)")
-    }
-}
+use crate::vmsession::bytesLargeFmt::Bytes1024;
+use crate::vmsession::peb_ldr_data::PebLdrData;
+use crate::vmsession::VMSession;
+use vmread::WinProcess;
 
 #[derive(Debug, Copy, Clone)]
 pub struct PEBBitfieldReading {
@@ -52,6 +45,7 @@ impl PEBBitfield {
             .collect::<String>()
     }
 }
+
 impl std::fmt::Debug for PEBBitfield {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -62,6 +56,12 @@ impl std::fmt::Debug for PEBBitfield {
             self.as_bitstr(),
             self.interpret().unwrap(),
         )
+    }
+}
+
+impl FullPEB {
+    pub fn read_loader(&self, vm: &VMSession, proc: &WinProcess) -> PebLdrData {
+        proc.read(&vm.native_ctx, self.Ldr)
     }
 }
 
@@ -139,120 +139,22 @@ pub struct FullPEB {
     pub FlsBitmap: u64,                          // ptr (0x0338)
     pub FlsBitmapBits: [u8; 16],                 //     (0x0340)
     pub FlsHighIndex: u32,                       //     (0x0350)
+
     // Vista and Beyond
     pub WerRegistrationData: u64, // ptr (0x0358)
     pub WerShipAssertPtr: u64,    // ptr (0x0360)
+
     // Win7 and Beyond
     pub pContextData: u64,      // ptr (0x0368) -- unused on Win8 and beyond
     pub pImageHeaderHash: u64,  // ptr (0x0370)
     pub TracingFlags: u32,      // ptr (0x0378)
     pub Padding1: [u8; 4usize], // ptr (0x037C)
     pub CsrServerReadOnlySharedMemoryBase: u64, // ptr (0x0380)
+
     // Win10 and Beyond
     pub TppWorkerpListLock: u64,           // ptr (0x0388)
     pub TppWorkerpList: [u8; 16],          // ptr (0x0390) to __LIST_ENTRY
     pub WaitOnAddressHashTable: Bytes1024, // ptr (0x03A0)
     pub TelemetryCoverageHeader: u64,      // ptr (0x07A0)
     pub CloudFileFlags: u64,               // ulong (0x07A8)
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct HeapBlock {
-    hMem: u32, // HANDLE
-    dwReserved: [u32; 3],
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct HeapRegion {
-    dwCommittedSize: u32,   // DWORD
-    dwUnCommittedSize: u32, // DWORD
-    lpFirstBlock: u64,      // void*
-    lpLastBlock: u64,       // void*
-}
-
-impl std::fmt::Debug for HeapBlockOrRegion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "HeapBlockOrRegion(as_block={:#?}, as_region={:#?})",
-            unsafe { self.Block },
-            unsafe { self.Region },
-        )
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub union HeapBlockOrRegion {
-    pub Block: HeapBlock,
-    pub Region: HeapRegion,
-}
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct PROCESS_HEAP_ENTRY {
-    pub lpData: u64,      // void*
-    pub cbData: u32,      // DWORD
-    pub cbOverhead: u8,   // BYTE
-    pub iRegionIndex: u8, // BYTE
-    pub wFlags: u16,      // WORD
-    pub BlockOrRegion: HeapBlockOrRegion,
-}
-
-impl PROCESS_HEAP_ENTRY {
-    pub fn as_table(&self, title: Option<String>) -> String {
-        let mut table = Table::new();
-        table.max_column_width = 45;
-        table.style = TableStyle::extended();
-        table.add_row(Row::new(vec![TableCell::new_with_alignment(
-            match title {
-                Some(t) => t,
-                None => "PROCESS_HEAP_ENTRY".to_string(),
-            },
-            2,
-            Alignment::Center,
-        )]));
-        let mut field_adder = |k, v| {
-            table.add_row(Row::new(vec![
-                TableCell::new_with_alignment(k, 1, Alignment::Left),
-                TableCell::new_with_alignment(v, 1, Alignment::Right),
-            ]));
-        };
-        field_adder("lpData", format!("0x{:x}", self.lpData));
-        field_adder("cbData", format!("0x{:x}", self.cbData));
-        field_adder("cbOverhead", format!("0x{:x}", self.cbOverhead));
-        field_adder("iRegionIndex", format!("0x{:x}", self.iRegionIndex));
-        field_adder("wFlags", format!("0x{:x}", self.wFlags));
-        field_adder(
-            "?block.hMem",
-            format!("0x{:x}", unsafe { self.BlockOrRegion.Block.hMem }),
-        );
-        field_adder(
-            "?block.dwReserved",
-            format!("{:?}", unsafe { self.BlockOrRegion.Block.dwReserved }),
-        );
-        field_adder(
-            "?region.dwCommittedSize",
-            format!("0x{:x}", unsafe {
-                self.BlockOrRegion.Region.dwCommittedSize
-            }),
-        );
-        field_adder(
-            "?region.dwUnCommittedSize",
-            format!("0x{:x}", unsafe {
-                self.BlockOrRegion.Region.dwUnCommittedSize
-            }),
-        );
-        field_adder(
-            "?region.lpFirstBlock",
-            format!("0x{:x}", unsafe { self.BlockOrRegion.Region.lpFirstBlock }),
-        );
-        field_adder(
-            "?region.lpLastBlock",
-            format!("0x{:x}", unsafe { self.BlockOrRegion.Region.lpLastBlock }),
-        );
-        table.render()
-    }
 }

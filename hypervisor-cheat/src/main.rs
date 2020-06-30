@@ -208,6 +208,158 @@ fn rust_routine(vm: &mut VMSession) {
     }
 }
 
+fn show_usage() {
+    println!(
+        r#"Available commands:
+    rust:                 runs the rust subroutine
+    kmod_to_file:         dump kernel module with the name $1 to disk
+    list_kmods:           list loaded kernel modules
+    memread:              read $2 bytes of physical memory from $1
+    pmemread:             read $2 bytes of process memory from process named $1
+    list_processes:       list all running processes
+    list_process_modules: list all modules of process named $1
+    heaps:                list all heaps of process named $1
+    peb:                  print the full PEB of process named $1
+    pinspect:             inspect process named $1
+    quit | exit:          exit the program
+    usage:                print this message"#
+    );
+}
+
+fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
+    match parts[0].as_ref() {
+        "rust" => rust_routine(vm.as_mut()),
+        "quit" | "exit" => std::process::exit(0),
+        "kmod_to_file" => kmod_to_file(vm.as_mut(), &parts),
+        "list_kmods" => vm.as_mut().list_kmods(true),
+        "memread" => {
+            if parts.len() != 3 {
+                println!("usage: pmemread <hPA> <hSize>");
+            } else {
+                let hPA = match parse_u64(&parts[1], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hPA");
+                        return;
+                    }
+                };
+                let hSize = match parse_u64(&parts[2], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hSize");
+                        return;
+                    }
+                };
+                let mut data = vec![0u8; hSize as usize];
+                data = vm.read_physical(hPA);
+                hexdump::hexdump(&data);
+            }
+        }
+        "pmemread" => {
+            if parts.len() != 4 {
+                println!("usage: pmemread explorer.exe <hVA> <hSize>");
+            } else {
+                let procname = &parts[1];
+                let hVA = match parse_u64(&parts[2], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hVA");
+                        return;
+                    }
+                };
+                let hSize = match parse_u64(&parts[3], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hSize");
+                        return;
+                    }
+                };
+                match vm.as_mut().find_process(procname, false, true, true) {
+                    None => println!("Unable to find a process with matching name"),
+                    Some(proc) => match vm.getvmem(proc.proc.dirBase, hVA, hVA + hSize) {
+                        None => println!("Unable to read memory"),
+                        Some(data) => hexdump::hexdump(&data),
+                    },
+                }
+            }
+        }
+        "list_processes" => vm.as_mut().list_process(true, true),
+        "list_process_modules" => {
+            if parts.len() != 2 {
+                println!("Usage: list_process_modules explorer.exe")
+            } else {
+                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                    None => println!("Unable to find a process with matching name"),
+                    Some(mut proc) => vm.list_process_modules(&mut proc, true),
+                }
+            }
+        }
+        "heaps" => {
+            if parts.len() != 2 {
+                println!("Usage: heaps explorer.exe")
+            } else {
+                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                    None => println!("Unable to find a process with matching name"),
+                    Some(proc) => vm.get_process_heaps(&proc),
+                }
+            }
+        }
+        "peb" => {
+            if parts.len() != 2 {
+                println!("Usage: peb explorer.exe")
+            } else {
+                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                    None => println!("Unable to find a process with matching name"),
+                    Some(proc) => {
+                        let peb = vm.get_full_peb(&proc);
+                        println!("PEB: {:#?}", peb);
+
+                        let loader = peb.read_loader(&vm, &proc);
+                        println!("Loader: {:#?}", loader);
+
+                        let mut idx = 0;
+                        let mut module =
+                            loader.getFirstInMemoryOrderModuleListForProcess(&vm.native_ctx, &proc);
+                        loop {
+                            if module.is_none() || idx >= loader.Length {
+                                break;
+                            }
+                            let m = module.unwrap();
+                            let name = match m.FullDllName.resolve_in_process(
+                                &vm.native_ctx,
+                                &proc,
+                                Some(512),
+                            ) {
+                                Some(n) => n,
+                                None => "unknown".to_string(),
+                            };
+                            println!("  LOADED MODULE {}: {}", idx, name);
+                            module =
+                                m.getNextInLoadOrderModuleListForProcess(&vm.native_ctx, &proc);
+                            idx += 1;
+                        }
+                    }
+                }
+            }
+        }
+        "pinspect" => {
+            if parts.len() != 2 {
+                println!("Usage: list_process_sections explorer.exe")
+            } else {
+                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                    None => println!("Unable to find a process with matching name"),
+                    Some(mut proc) => vm.pinspect(&mut proc, true),
+                }
+            }
+        }
+        "help" | "usage" => show_usage(),
+        _ => {
+            println!("Unknown command: {:?}", parts);
+            show_usage()
+        }
+    }
+}
+
 fn main() {
     let vm = vmsession::VMSession::new().expect("Failed to initialize");
     println!("\n######################");
@@ -231,110 +383,7 @@ fn main() {
                 if parts.is_empty() {
                     println!("Empty command invalid")
                 } else {
-                    match parts[0].as_ref() {
-                        "rust" => rust_routine(vm.as_mut()),
-                        "quit" | "exit" => std::process::exit(0),
-                        "kmod_to_file" => kmod_to_file(vm.as_mut(), &parts),
-                        "list_kmods" => vm.as_mut().list_kmods(true),
-                        "memread" => {
-                            if parts.len() != 3 {
-                                println!("usage: pmemread <hPA> <hSize>");
-                            } else {
-                                let hPA = match parse_u64(&parts[1], false) {
-                                    Some(h) => h,
-                                    None => {
-                                        println!("unable to parse hPA");
-                                        return;
-                                    }
-                                };
-                                let hSize = match parse_u64(&parts[2], false) {
-                                    Some(h) => h,
-                                    None => {
-                                        println!("unable to parse hSize");
-                                        return;
-                                    }
-                                };
-                                let mut data = vec![0u8; hSize as usize];
-                                data = vm.read_physical(hPA);
-                                hexdump::hexdump(&data);
-                            }
-                        }
-                        "pmemread" => {
-                            if parts.len() != 4 {
-                                println!("usage: pmemread explorer.exe <hVA> <hSize>");
-                            } else {
-                                let procname = &parts[1];
-                                let hVA = match parse_u64(&parts[2], false) {
-                                    Some(h) => h,
-                                    None => {
-                                        println!("unable to parse hVA");
-                                        return;
-                                    }
-                                };
-                                let hSize = match parse_u64(&parts[3], false) {
-                                    Some(h) => h,
-                                    None => {
-                                        println!("unable to parse hSize");
-                                        return;
-                                    }
-                                };
-                                match vm.as_mut().find_process(procname, false, true, true) {
-                                    None => println!("Unable to find a process with matching name"),
-                                    Some(proc) => {
-                                        match vm.getvmem(proc.proc.dirBase, hVA, hVA + hSize) {
-                                            None => println!("Unable to read memory"),
-                                            Some(data) => hexdump::hexdump(&data),
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        "list_processes" => vm.as_mut().list_process(true, true),
-                        "list_process_modules" => {
-                            if parts.len() != 2 {
-                                println!("Usage: list_process_modules explorer.exe")
-                            } else {
-                                match vm.as_mut().find_process(&parts[1], false, true, true) {
-                                    None => println!("Unable to find a process with matching name"),
-                                    Some(mut proc) => vm.list_process_modules(&mut proc, true),
-                                }
-                            }
-                        }
-                        "heaps" => {
-                            if parts.len() != 2 {
-                                println!("Usage: heaps explorer.exe")
-                            } else {
-                                match vm.as_mut().find_process(&parts[1], false, true, true) {
-                                    None => println!("Unable to find a process with matching name"),
-                                    Some(proc) => vm.get_process_heaps(&proc),
-                                }
-                            }
-                        }
-                        "peb" => {
-                            if parts.len() != 2 {
-                                println!("Usage: peb explorer.exe")
-                            } else {
-                                match vm.as_mut().find_process(&parts[1], false, true, true) {
-                                    None => println!("Unable to find a process with matching name"),
-                                    Some(proc) => {
-                                        let peb = vm.get_full_peb(&proc);
-                                        println!("PEB: {:#?}", peb);
-                                    }
-                                }
-                            }
-                        }
-                        "pinspect" => {
-                            if parts.len() != 2 {
-                                println!("Usage: list_process_sections explorer.exe")
-                            } else {
-                                match vm.as_mut().find_process(&parts[1], false, true, true) {
-                                    None => println!("Unable to find a process with matching name"),
-                                    Some(mut proc) => vm.pinspect(&mut proc, true),
-                                }
-                            }
-                        }
-                        _ => println!("Unknown command: {:?}", parts),
-                    }
+                    dispatch_commands(std::sync::Arc::clone(&vm), parts)
                 }
             }
         }

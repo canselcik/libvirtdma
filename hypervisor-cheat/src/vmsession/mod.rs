@@ -8,7 +8,8 @@ extern crate vmread_sys;
 
 use self::regex::bytes::Regex;
 use self::term_table::row::Row;
-use crate::vmsession::fullpeb::{FullPEB, PROCESS_HEAP_ENTRY};
+use crate::vmsession::fullpeb::FullPEB;
+use crate::vmsession::heap_entry::PROCESS_HEAP_ENTRY;
 use memmem::Searcher;
 use pelite::image::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS64, IMAGE_NT_HEADERS_SIGNATURE,
@@ -24,13 +25,18 @@ use term_table::{Table, TableStyle};
 use vmread::{WinContext, WinDll, WinProcess};
 use vmread_sys::{WinCtx, WinModule, PEB};
 
+mod bytesLargeFmt;
 mod fullpeb;
+mod heap_entry;
+mod list_entry;
+mod peb_ldr_data;
+mod unicode_string;
 
 pub struct PtrForeign<T> {
     ptr: u64,
     vm: std::sync::Arc<VMSession>,
     proc: Option<WinProcess>,
-    typ: PhantomData<T>,
+    typ: PhantomData<*const T>,
 }
 
 impl<T> PtrForeign<T> {
@@ -75,7 +81,13 @@ impl VMSession {
         Arc::clone(arc.as_ref().unwrap())
     }
 
-    pub fn mmap_physmem_as<T>(&self, phys_addr: u64) -> Option<ManuallyDrop<Box<T>>> {
+    pub fn map_physmem_as_slice<T>(&self) -> ManuallyDrop<&mut [u8]> {
+        let len = self.native_ctx.process.mapsSize as usize;
+        let ptr = self.native_ctx.process.mapsStart as *mut u8;
+        unsafe { ManuallyDrop::new(std::slice::from_raw_parts_mut(ptr, len)) }
+    }
+
+    pub fn map_physmem_as<T>(&self, phys_addr: u64) -> Option<ManuallyDrop<Box<T>>> {
         let start = self.native_ctx.process.mapsStart;
         let bufsize: usize = self.native_ctx.process.mapsSize as usize;
         let sz = size_of::<T>();
@@ -116,7 +128,7 @@ impl VMSession {
 
         let mut table = Table::new();
         table.max_column_width = 45;
-        table.style = TableStyle::extended();
+        table.style = TableStyle::thin();
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             "Kernel Modules",
@@ -195,7 +207,7 @@ impl VMSession {
 
         let mut table = Table::new();
         table.max_column_width = 45;
-        table.style = TableStyle::extended();
+        table.style = TableStyle::thin();
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             "Processes",
@@ -253,7 +265,7 @@ impl VMSession {
         }
         let mut table = Table::new();
         table.max_column_width = 45;
-        table.style = TableStyle::extended();
+        table.style = TableStyle::thin();
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             format!("Modules of {}", proc.name),
@@ -298,9 +310,6 @@ impl VMSession {
 
     pub fn get_process_heaps(&self, proc: &WinProcess) {
         let peb = self.get_full_peb(proc);
-        println!("PEB->NumberOfHeaps: {}", peb.NumberOfHeaps);
-        println!("PEB->ProcessHeap: 0x{:x}", peb.ProcessHeap);
-        println!("PEB->ProcessHeaps: 0x{:x}", peb.ProcessHeaps);
         for heap_index in 0..peb.NumberOfHeaps {
             let offset = heap_index as usize * size_of::<PROCESS_HEAP_ENTRY>();
             let heap: PROCESS_HEAP_ENTRY =
@@ -328,7 +337,7 @@ impl VMSession {
 
         let mut overview = Table::new();
         overview.max_column_width = 45;
-        overview.style = TableStyle::extended();
+        overview.style = TableStyle::thin();
 
         overview.add_row(Row::new(vec![TableCell::new_with_alignment(
             format!("Overview of {}", proc.name),
@@ -397,27 +406,32 @@ impl VMSession {
             format!("0x{:x}", new_exec_header.OptionalHeader.ImageBase),
         );
 
-        // let section_count = new_exec_header.FileHeader.NumberOfSections;
-        // add_overview_row("Section Count", format!("{}", section_count));
-        // add_overview_row(
-        //     "Symbol Count",
-        //     format!("{}", new_exec_header.FileHeader.NumberOfSymbols),
-        // );
+        add_overview_row(
+            "Symbol Count",
+            format!("{}", new_exec_header.FileHeader.NumberOfSymbols),
+        );
+
+        let section_count = new_exec_header.FileHeader.NumberOfSections;
+        add_overview_row("Section Count", format!("{}", section_count));
 
         println!("{}", overview.render());
-        // let section_hdr_addr = nt_header_addr + size_of::<IMAGE_NT_HEADERS64>() as u64;
-        // for section_idx in 0..section_count {
-        //     let section_header: pelite::image::IMAGE_SECTION_HEADER = proc.read(
-        //         &self.native_ctx,
-        //         section_hdr_addr + (section_idx as u64 * size_of::<pelite::image::IMAGE_SECTION_HEADER>() as u64),
-        //     );
-        //     println!(
-        //         "section_header: {} {:#?}",
-        //         section_header.Name, section_header
-        //     );
-        //     // let section_size = next_section.VirtualAddress - data_header.VirtualAddress;
-        //     // println!("section_size: 0x{:x}", section_header.VirtualSize);
-        // }
+
+        // TODO: Something is funky here
+        let section_hdr_addr = nt_header_addr + size_of::<IMAGE_NT_HEADERS64>() as u64;
+        for section_idx in 0..section_count {
+            let section_header: pelite::image::IMAGE_SECTION_HEADER = proc.read(
+                &self.native_ctx,
+                section_hdr_addr
+                    + (section_idx as u64
+                        * size_of::<pelite::image::IMAGE_SECTION_HEADER>() as u64),
+            );
+            println!(
+                "section_header: {} {:#?}",
+                section_header.Name, section_header
+            );
+            // let section_size = next_section.VirtualAddress - data_header.VirtualAddress;
+            // println!("section_size: 0x{:x}", section_header.VirtualSize);
+        }
     }
 
     pub fn read_physical<T>(&self, address: u64) -> T {

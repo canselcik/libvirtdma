@@ -251,8 +251,10 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                     }
                 };
                 let mut data = vec![0u8; hSize as usize];
-                data = vm.read_physical(hPA);
-                hexdump::hexdump(&data);
+                match vm.getvmem(None, hPA, hPA + hSize) {
+                    Some(data) => hexdump::hexdump(&data),
+                    None => println!("Unable to read memory"),
+                };
             }
         }
         "pmemread" => {
@@ -276,7 +278,7 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                 };
                 match vm.as_mut().find_process(procname, false, true, true) {
                     None => println!("Unable to find a process with matching name"),
-                    Some(proc) => match vm.getvmem(proc.proc.dirBase, hVA, hVA + hSize) {
+                    Some(proc) => match vm.getvmem(Some(proc.proc.dirBase), hVA, hVA + hSize) {
                         None => println!("Unable to read memory"),
                         Some(data) => hexdump::hexdump(&data),
                     },

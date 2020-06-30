@@ -253,7 +253,7 @@ impl VMSession {
     pub fn dump_module_vmem(&self, dirbase: u64, mod_info: &WinModule) -> Result<Vec<u8>, i64> {
         let begin = mod_info.baseAddress;
         let end = begin + mod_info.sizeOfModule;
-        match self.getvmem(dirbase, begin, end) {
+        match self.getvmem(Some(dirbase), begin, end) {
             None => Err(-1),
             Some(res) => Ok(res.into_vec()),
         }
@@ -438,10 +438,13 @@ impl VMSession {
         self.ctx.read(address)
     }
 
-    fn _getvmem(&self, dirbase: u64, local_begin: u64, begin: u64, end: u64) -> i64 {
+    fn _getvmem(&self, dirbase: Option<u64>, local_begin: u64, begin: u64, end: u64) -> i64 {
         let len = end - begin;
         if len <= 8 {
-            let data = unsafe { vmread_sys::VMemReadU64(&self.native_ctx.process, dirbase, begin) };
+            let data = match dirbase {
+                Some(d) => unsafe { vmread_sys::VMemReadU64(&self.native_ctx.process, d, begin) },
+                None => unsafe { vmread_sys::MemReadU64(&self.native_ctx.process, begin) },
+            };
             let bit64: [u8; 8] = data.to_le_bytes();
             let slice =
                 unsafe { std::slice::from_raw_parts_mut(local_begin as *mut u8, len as usize) };
@@ -453,8 +456,13 @@ impl VMSession {
         if len <= 0 {
             return -2;
         }
-        let mut res: i64 = unsafe {
-            vmread_sys::VMemRead(&self.native_ctx.process, dirbase, local_begin, begin, len)
+        let mut res: i64 = match dirbase {
+            Some(d) => unsafe {
+                vmread_sys::VMemRead(&self.native_ctx.process, d, local_begin, begin, len)
+            },
+            None => unsafe {
+                vmread_sys::MemRead(&self.native_ctx.process, local_begin, begin, len)
+            },
         };
         if res < 0 {
             let chunksize = len / 2;
@@ -467,7 +475,7 @@ impl VMSession {
         return res;
     }
 
-    pub fn getvmem(&self, dirbase: u64, begin: u64, end: u64) -> Option<Box<[u8]>> {
+    pub fn getvmem(&self, dirbase: Option<u64>, begin: u64, end: u64) -> Option<Box<[u8]>> {
         let len = end - begin;
         let buffer: Box<[std::mem::MaybeUninit<u8>]> = Box::new_uninit_slice(len as usize);
         let buffer_begin = buffer.as_ptr() as u64;

@@ -20,45 +20,75 @@ impl std::fmt::Debug for ListEntry {
 }
 
 impl ListEntry {
-    pub fn getNextFromProcess<T>(&self, native_ctx: &WinCtx, proc: &WinProcess) -> Option<T> {
+    pub fn getNextFromProcess<T>(
+        &self,
+        native_ctx: &WinCtx,
+        proc: &WinProcess,
+        listEntryOffsetInTargetStruct: u64,
+    ) -> Option<T> {
         if self.Flink == 0 {
             return None;
         }
-        Some(proc.read(native_ctx, self.Flink))
+        Some(proc.read(native_ctx, self.Flink - listEntryOffsetInTargetStruct))
     }
 
-    pub fn getPreviousFromProcess<T>(&self, native_ctx: &WinCtx, proc: &WinProcess) -> Option<T> {
+    pub fn getPreviousFromProcess<T>(
+        &self,
+        native_ctx: &WinCtx,
+        proc: &WinProcess,
+        listEntryOffsetInTargetStruct: u64,
+    ) -> Option<T> {
         if self.Blink == 0 {
             return None;
         }
-        Some(proc.read(native_ctx, self.Blink))
+        Some(proc.read(native_ctx, self.Blink - listEntryOffsetInTargetStruct))
     }
 
-    pub fn getNextFromKernelInitialProcess<T>(&self, vm: &VMSession) -> Option<T> {
+    pub fn getNextFromKernelInitialProcess<T>(
+        &self,
+        vm: &VMSession,
+        listEntryOffsetInTargetStruct: u64,
+    ) -> Option<T> {
         if self.Flink == 0 {
             return None;
         }
-        Some(vm.read_physical(vm.native_ctx.initialProcess.dirBase + self.Flink))
+        Some(vm.read_physical(
+            vm.native_ctx.initialProcess.dirBase + self.Flink - listEntryOffsetInTargetStruct,
+        ))
     }
 
-    pub fn getPreviousFromKernelInitialProcess<T>(&self, vm: &VMSession) -> Option<T> {
+    pub fn getPreviousFromKernelInitialProcess<T>(
+        &self,
+        vm: &VMSession,
+        listEntryOffsetInTargetStruct: u64,
+    ) -> Option<T> {
         if self.Blink == 0 {
             return None;
         }
-        Some(vm.read_physical(vm.native_ctx.initialProcess.dirBase + self.Blink))
+        Some(vm.read_physical(
+            vm.native_ctx.initialProcess.dirBase + self.Blink - listEntryOffsetInTargetStruct,
+        ))
     }
 
-    pub fn getNextFromPhysicalMemory<T>(&self, ctx: &WinContext) -> Option<T> {
+    pub fn getNextFromPhysicalMemory<T>(
+        &self,
+        ctx: &WinContext,
+        listEntryOffsetInTargetStruct: u64,
+    ) -> Option<T> {
         if self.Flink == 0 {
             return None;
         }
-        ctx.read(self.Flink)
+        ctx.read(self.Flink - listEntryOffsetInTargetStruct)
     }
 
-    pub fn getPreviousFromPhysicalMemory<T>(&self, ctx: &WinContext) -> Option<T> {
+    pub fn getPreviousFromPhysicalMemory<T>(
+        &self,
+        ctx: &WinContext,
+        listEntryOffsetInTargetStruct: u64,
+    ) -> Option<T> {
         if self.Blink == 0 {
             return None;
         }
-        ctx.read(self.Blink)
+        ctx.read(self.Blink - listEntryOffsetInTargetStruct)
     }
 }

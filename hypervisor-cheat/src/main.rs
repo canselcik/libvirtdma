@@ -325,7 +325,7 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                                 break;
                             }
                             let m = module.unwrap();
-                            let name = match m.FullDllName.resolve_in_process(
+                            let name = match m.BaseDllName.resolve_in_process(
                                 &vm.native_ctx,
                                 &proc,
                                 Some(512),
@@ -335,7 +335,7 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                             };
                             println!("  LOADED MODULE {}: {}", idx, name);
                             module =
-                                m.getNextInLoadOrderModuleListForProcess(&vm.native_ctx, &proc);
+                                m.getNextInMemoryOrderModuleListForProcess(&vm.native_ctx, &proc);
                             idx += 1;
                         }
                     }

@@ -19,14 +19,26 @@ pub struct PebLdrData {
 }
 
 impl PebLdrData {
+    pub fn getFirstInLoadOrderModuleListForProcess(
+        &self,
+        native_ctx: &WinCtx,
+        proc: &WinProcess,
+    ) -> Option<LdrModule> {
+        self.InLoadOrderModuleList
+            .getNextFromProcess(native_ctx, proc, 0)
+    }
+
     pub fn getFirstInMemoryOrderModuleListForProcess(
         &self,
         native_ctx: &WinCtx,
         proc: &WinProcess,
     ) -> Option<LdrModule> {
         // For some reason we get full paths on this
-        self.InMemoryOrderModuleList
-            .getNextFromProcess(native_ctx, proc)
+        self.InMemoryOrderModuleList.getNextFromProcess(
+            native_ctx,
+            proc,
+            std::mem::size_of::<ListEntry>() as u64,
+        )
     }
 
     pub fn getFirstInInitializationOrderModuleListForProcess(
@@ -34,20 +46,11 @@ impl PebLdrData {
         native_ctx: &WinCtx,
         proc: &WinProcess,
     ) -> Option<LdrModule> {
-        // TODO: Doesnt seem to work well as it places us to nonsensical offsets
-        self.InInitializationOrderModuleList
-            .getNextFromProcess(native_ctx, proc)
-    }
-
-    pub fn getFirstInLoadOrderModuleListForProcess(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-    ) -> Option<LdrModule> {
-        // Seems to work and result in identical list as InMemoryOrderModuleList however
-        // with relative paths.
-        self.InLoadOrderModuleList
-            .getNextFromProcess(native_ctx, proc)
+        self.InInitializationOrderModuleList.getNextFromProcess(
+            native_ctx,
+            proc,
+            2 * std::mem::size_of::<ListEntry>() as u64,
+        )
     }
 }
 
@@ -70,22 +73,25 @@ pub struct LdrModule {
 }
 
 impl LdrModule {
-    pub fn getNextInMemoryOrderModuleListForProcess(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-    ) -> Option<LdrModule> {
-        self.InMemoryOrderModuleList
-            .getNextFromProcess(native_ctx, proc)
-    }
-
     pub fn getNextInLoadOrderModuleListForProcess(
         &self,
         native_ctx: &WinCtx,
         proc: &WinProcess,
     ) -> Option<LdrModule> {
         self.InLoadOrderModuleList
-            .getNextFromProcess(native_ctx, proc)
+            .getNextFromProcess(native_ctx, proc, 0)
+    }
+
+    pub fn getNextInMemoryOrderModuleListForProcess(
+        &self,
+        native_ctx: &WinCtx,
+        proc: &WinProcess,
+    ) -> Option<LdrModule> {
+        self.InMemoryOrderModuleList.getNextFromProcess(
+            native_ctx,
+            proc,
+            std::mem::size_of::<ListEntry>() as u64,
+        )
     }
 
     pub fn getNextInInitializationOrderModuleListForProcess(
@@ -93,7 +99,10 @@ impl LdrModule {
         native_ctx: &WinCtx,
         proc: &WinProcess,
     ) -> Option<LdrModule> {
-        self.InInitializationOrderModuleList
-            .getNextFromProcess(native_ctx, proc)
+        self.InInitializationOrderModuleList.getNextFromProcess(
+            native_ctx,
+            proc,
+            2 * std::mem::size_of::<ListEntry>() as u64,
+        )
     }
 }

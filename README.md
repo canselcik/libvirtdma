@@ -1,3 +1,10 @@
+Fork of `vmread` and `vmread-rs` -- slowly converging into writing the
+userspace and maybe ultimately the kernel module in Rust.
+
+Have some additional applications and features already committed in this repo.
+
+-----------
+
 # Rust bindings for linux vmread library
 
 

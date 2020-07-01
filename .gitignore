@@ -2,3 +2,11 @@ target
 /.idea
 Cargo.lock
 *.swp
+*.o
+build/
+*.ko
+*.cmd
+*.symvers
+*.order
+*.mod
+*.mod.c

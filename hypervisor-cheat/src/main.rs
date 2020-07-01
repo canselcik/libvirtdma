@@ -258,7 +258,10 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                             } else {
                                 format!("0x{:x}", thread.CidUniqueThread)
                             };
-                            println!("  Found Thread '{}'", moniker);
+                            println!(
+                                "  Found Thread '{}' with TEB PVA @ 0x{:x}",
+                                moniker, thread.Tcb.Teb
+                            );
                         }
                         // println!(
                         //     "First thread link points to 0x{:x}",

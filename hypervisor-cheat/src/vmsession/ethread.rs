@@ -8,13 +8,70 @@ sa::const_assert!(std::mem::size_of::<ETHREAD>() == 0x810);
 // 0x5f0 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
 sa::const_assert!(std::mem::size_of::<KTHREAD>() == 0x5f0);
 
+// 0x10 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
+sa::const_assert!(std::mem::size_of::<GroupAffinity>() == 0x10);
+
 pub const KTHREAD_THREAD_LIST_OFFSET: u64 = 0x2f8;
 pub const ETHREAD_THREAD_LIST_OFFSET: u64 = 0x6a8;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct GroupAffinity {
+    pub Mask: u64,          //0x0
+    pub Group: u16,         //0x8
+    pub Reserved: [u16; 3], //0xa
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct KTHREAD {
-    pub Placeholder: Bytes760,
+    pub Header: Bytes24,                       //0x0 _DISPATCHER_HEADER
+    pub SListFaultAddress: u64,                //0x18 VOID*
+    pub QuantumTarget: u64,                    //0x20
+    pub InitialStack: u64,                     //0x28 VOID*
+    pub StackLimit: u64,                       //0x30 VOID*
+    pub StackBase: u64,                        //0x38 VOID*
+    pub ThreadLock: u64,                       //0x40
+    pub CycleTime: u64,                        //0x48
+    pub CurrentRunTime: u32,                   //0x50 ULONG
+    pub ExpectedRunTime: u32,                  //0x54 ULONG
+    pub KernelStack: u64,                      //0x58 VOID*
+    pub StateSaveArea: u64,                    //0x60 _XSAVE_FORMAT*
+    pub SchedulingGroup: u64,                  //0x68 _KSCHEDULING_GROUP*
+    pub WaitRegister: u8,                      //0x70 _KWAIT_STATUS_REGISTER
+    pub Running: u8,                           //0x71
+    pub Alerted: u16,                          //0x72
+    pub MiscFlags: i32,                        //0x74
+    pub ThreadFlags: i32,                      //0x78
+    pub Tag: u8,                               //0x7c
+    pub SystemHeteroCpuPolicy: u8,             //0x7d
+    pub UserHeteroCpuPolicy: u8,               //0x7e
+    pub SpecCtrl: u8,                          //0x7f
+    pub SystemCallNumber: u32,                 //0x80
+    pub ReadyTime: u32,                        //0x84
+    pub FirstArgument: u64,                    //0x88 VOID*
+    pub TrapFrame: u64,                        //0x90 _KTRAP_FRAME*
+    pub ApcState: Bytes48,                     //0x98 _KAPC_STATE
+    pub WaitStatus: i64,                       //0xc8
+    pub WaitBlockList: u64,                    //0xd0 _KWAIT_BLOCK*
+    pub WaitListEntry: ListEntry,              //0xd8
+    pub Queue: u64,                            //0xe8 _DISPATCHER_HEADER*
+    pub Teb: u64,                              //0xf0 VOID*
+    pub RelativeTimerBias: u64,                //0xf8
+    pub Timer: Bytes64,                        //0x100 _KTIMER
+    pub WaitBlock: Bytes192,                   //0x140 _KWAIT_BLOCK
+    pub Spare21: u64,                          //0x200 VOID*
+    pub QueueListEntry: ListEntry,             //0x208
+    pub NextProcessor: u32,                    //0x218 ULONG
+    pub QueuePriority: i32,                    //0x21c
+    pub Process: u64,                          //0x220 _KPROCESS*
+    pub UserAffinity: GroupAffinity,           //0x228
+    pub AffinityVersion: u64,                  //0x238
+    pub Affinity: GroupAffinity,               //0x240
+    pub NpxState: u64,                         //0x250
+    pub SavedApcState: Bytes48,                //0x258 _KAPC_STATE
+    pub SchedulerApc: Bytes88,                 //0x288 _KAPC
+    pub SuspendEvent: Bytes24,                 //0x2e0 _KEVENT
     pub ThreadListEntry: ListEntry,            //0x2f8
     pub MutantListHead: ListEntry,             //0x308
     pub AbEntrySummary: u8,                    //0x318

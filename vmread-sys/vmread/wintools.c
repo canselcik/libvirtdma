@@ -633,9 +633,9 @@ static int SetupOffsets(WinCtx* ctx)
 		  break;
 	  case 1000: /* W10 */
 		  ctx->offsets = (WinOffsets){
-			  .apl = 0x2e8,
+			  .apl = 0x2e8,            // ActiveProcessLinks
 			  .session = 0x448,
-			  .stackCount = 0x23c,
+			  .stackCount = 0x23c,     // _KPROCESS offset
 			  .imageFileName = 0x450,
 			  .dirBase = 0x28,
 			  .peb = 0x3f8,

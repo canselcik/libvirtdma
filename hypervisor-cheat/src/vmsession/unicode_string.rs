@@ -1,3 +1,4 @@
+use crate::vmsession::VMSession;
 use vmread::WinProcess;
 use vmread_sys::WinCtx;
 
@@ -42,6 +43,35 @@ impl UnicodeString {
                 native_ctx,
                 self.Buffer + offset as u64 * std::mem::size_of::<u16>() as u64,
             );
+            input.push(current);
+        }
+        let charlen = readlen / 2;
+        let s = unsafe { widestring::U16String::from_ptr(input.as_ptr(), charlen as usize) };
+        Some(s.to_string_lossy())
+    }
+
+    pub fn resolve_with_dirbase(
+        &self,
+        vm: &VMSession,
+        dirbase: u64,
+        maxLen: Option<u16>,
+    ) -> Option<String> {
+        let readlen = match maxLen {
+            Some(l) => {
+                if l < self.Length {
+                    l
+                } else {
+                    self.Length
+                }
+            }
+            None => self.Length,
+        };
+        let mut input: Vec<u16> = Vec::new();
+        for offset in 0..readlen {
+            let current: u16 = vm.read_physical(vm.translate(
+                dirbase,
+                self.Buffer + offset as u64 * std::mem::size_of::<u16>() as u64,
+            ));
             input.push(current);
         }
         let charlen = readlen / 2;

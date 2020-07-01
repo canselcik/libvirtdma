@@ -1,7 +1,24 @@
-#[derive(Copy, Clone)]
-pub struct Bytes1024([u8; 1024]);
-impl std::fmt::Debug for Bytes1024 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "bytes1024(...)")
-    }
+macro_rules! makeByteRange {
+    ($name:ident, $length:expr) => {
+        #[derive(Copy, Clone)]
+        pub struct $name([u8; $length]);
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}(...)", stringify!($name))
+            }
+        }
+    };
 }
+makeByteRange!(Bytes24, 24);
+makeByteRange!(Bytes1024, 1024);
+makeByteRange!(Bytes660, 0x294);
+makeByteRange!(Bytes168, 0xA8);
+makeByteRange!(Bytes80, 80);
+makeByteRange!(Bytes40, 40);
+makeByteRange!(Bytes71, 71);
+makeByteRange!(Bytes272, 0x110);
+makeByteRange!(Bytes32, 0x20);
+makeByteRange!(Bytes48, 0x30);
+makeByteRange!(Bytes1520, 0x5f0);
+makeByteRange!(Bytes760, 760);
+makeByteRange!(Bytes744, 744);

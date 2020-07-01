@@ -6,15 +6,16 @@ extern crate hex;
 extern crate hexdump;
 extern crate linefeed;
 extern crate shlex;
-
-use linefeed::{Interface, ReadResult};
-
 extern crate vmread;
 extern crate vmread_sys;
 
 use crate::rust_external::*;
+use crate::vmsession::fullpeb::{
+    ETHREAD, ETHREAD_THREAD_LIST_OFFSET, KTHREAD, KTHREAD_THREAD_LIST_OFFSET,
+};
 use crate::vmsession::VMSession;
 use byteorder::ByteOrder;
+use linefeed::{Interface, ReadResult};
 use vmread::{WinDll, WinProcess};
 
 mod rust_external;
@@ -211,10 +212,13 @@ fn rust_routine(vm: &mut VMSession) {
 fn show_usage() {
     println!(
         r#"Available commands:
+    eprocess:             shows full EPROCESS for process with pid $1
+    walk_eprocess:        iterates over eprocess
     rust:                 runs the rust subroutine
     kmod_to_file:         dump kernel module with the name $1 to disk
     list_kmods:           list loaded kernel modules
     memread:              read $2 bytes of physical memory from $1
+    mem2file              read $2 bytes of physical memory from $1 to $3
     pmemread:             read $2 bytes of process memory from process named $1
     list_processes:       list all running processes
     list_process_modules: list all modules of process named $1
@@ -228,6 +232,84 @@ fn show_usage() {
 
 fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
     match parts[0].as_ref() {
+        "eprocess" => {
+            if parts.len() != 2 {
+                println!("usage: eprocess <PID>");
+            } else {
+                let pid = match parse_u64(&parts[1], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse PID");
+                        return;
+                    }
+                };
+                match vm.eprocess_for_pid(pid) {
+                    None => println!("Unable to find a kernel EPROCESS entry for PID {}", pid),
+                    Some(info) => {
+                        // println!("{:#?}", info);
+                        println!(
+                            "KPROCESS.ThreadListHead: 0x{:x}",
+                            info.eprocess.Pcb.ThreadListHead.Flink,
+                        );
+                        let dirbase = info.eprocess.Pcb.DirectoryTableBase;
+                        let kThNext: Option<KTHREAD> =
+                            info.eprocess.Pcb.ThreadListHead.getNextWithDirbase(
+                                vm.as_ref(),
+                                Some(dirbase),
+                                KTHREAD_THREAD_LIST_OFFSET,
+                            );
+                        if let Some(next) = kThNext {
+                            println!("KPROCESS.ThreadListHead next: {:#?}", next);
+                        }
+                        println!(
+                            "EPROCESS.ThreadListHead: 0x{:x}",
+                            info.eprocess.ThreadListHead.Flink,
+                        );
+                        let kThNext: Option<ETHREAD> =
+                            info.eprocess.ThreadListHead.getNextWithDirbase(
+                                vm.as_ref(),
+                                Some(dirbase),
+                                ETHREAD_THREAD_LIST_OFFSET,
+                            );
+                        if let Some(next) = kThNext {
+                            println!("EPROCESS.ThreadListHead next: {:#?}", next);
+                        }
+                    }
+                }
+            }
+        }
+        "mem2file" => {
+            if parts.len() != 4 {
+                println!("usage: mem2file <hPA> <hSize> <sFile>");
+            } else {
+                let hPA = match parse_u64(&parts[1], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hPA");
+                        return;
+                    }
+                };
+                let hSize = match parse_u64(&parts[2], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hSize");
+                        return;
+                    }
+                };
+                match vm.getvmem(None, hPA, hPA + hSize) {
+                    Some(data) => match std::fs::write(&parts[3], &data) {
+                        Ok(_) => println!("{} bytes written to file '{}'", hSize, parts[3]),
+                        Err(e) => println!(
+                            "Error while writing to file '{}': {}",
+                            parts[3],
+                            e.to_string(),
+                        ),
+                    },
+                    None => println!("Unable to read memory"),
+                };
+            }
+        }
+        "walk_eprocess" => vm.walk_eprocess(),
         "rust" => rust_routine(vm.as_mut()),
         "quit" | "exit" => std::process::exit(0),
         "kmod_to_file" => kmod_to_file(vm.as_mut(), &parts),
@@ -250,7 +332,6 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                         return;
                     }
                 };
-                let mut data = vec![0u8; hSize as usize];
                 match vm.getvmem(None, hPA, hPA + hSize) {
                     Some(data) => hexdump::hexdump(&data),
                     None => println!("Unable to read memory"),
@@ -313,7 +394,7 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                 match vm.as_mut().find_process(&parts[1], false, true, true) {
                     None => println!("Unable to find a process with matching name"),
                     Some(proc) => {
-                        let peb = vm.get_full_peb(&proc);
+                        let peb = vm.get_full_peb_for_process(&proc);
                         println!("PEB: {:#?}", peb);
 
                         let loader = peb.read_loader(&vm, &proc);

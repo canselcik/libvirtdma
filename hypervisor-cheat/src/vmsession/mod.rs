@@ -8,13 +8,16 @@ extern crate vmread_sys;
 
 use self::regex::bytes::Regex;
 use self::term_table::row::Row;
-use crate::vmsession::fullpeb::FullPEB;
+use crate::vmsession::fullpeb::{FullPEB, ProcKernelInfo, EPROCESS};
 use crate::vmsession::heap_entry::PROCESS_HEAP_ENTRY;
+use itertools::Itertools;
 use memmem::Searcher;
 use pelite::image::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS64, IMAGE_NT_HEADERS_SIGNATURE,
     IMAGE_NT_OPTIONAL_HDR64_MAGIC,
 };
+use std::collections::HashMap;
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::mem::ManuallyDrop;
@@ -23,10 +26,10 @@ use std::sync::{Arc, RwLock};
 use term_table::table_cell::{Alignment, TableCell};
 use term_table::{Table, TableStyle};
 use vmread::{WinContext, WinDll, WinProcess};
-use vmread_sys::{WinCtx, WinModule, PEB};
+use vmread_sys::{ProcessData, WinCtx, WinModule, PEB};
 
 mod bytesLargeFmt;
-mod fullpeb;
+pub mod fullpeb;
 mod heap_entry;
 mod list_entry;
 mod peb_ldr_data;
@@ -259,6 +262,112 @@ impl VMSession {
         }
     }
 
+    pub fn translate(&self, dirbase: u64, addr: u64) -> u64 {
+        unsafe {
+            vmread_sys::VTranslate(
+                &self.native_ctx.process as *const ProcessData,
+                dirbase,
+                addr,
+            )
+        }
+    }
+
+    pub fn read_cstring_from_physical_mem(&self, addr: u64, maxlen: Option<u64>) -> String {
+        let mut out: Vec<u8> = Vec::new();
+        let mut len = 0;
+        loop {
+            let val: u8 = self.read_physical(addr + len);
+            if val == 0 {
+                break;
+            }
+            out.push(val);
+            len += 1;
+            if let Some(max) = maxlen {
+                if len >= max {
+                    break;
+                }
+            }
+        }
+        std::string::String::from_iter(out.iter().map(|b| *b as char))
+    }
+
+    pub fn get_eprocess_entries(&self, pid_filter: Option<u64>) -> HashMap<u64, ProcKernelInfo> {
+        let mut m: HashMap<u64, ProcKernelInfo> = HashMap::new();
+        let mut curProc = self.native_ctx.initialProcess.physProcess;
+        let mut virtProcess = self.native_ctx.initialProcess.process;
+        loop {
+            let eprocess: EPROCESS = self.read_physical(curProc);
+            if eprocess.UniqueProcessId == 0 {
+                println!("Returning early from walking EPROCESS because PID is 0");
+                break;
+            }
+
+            let dirbase = eprocess.Pcb.DirectoryTableBase;
+
+            // The end of the process list usually has corrupted values,
+            // some sort of address, and we avoid the issue by checking
+            // the PID (which shouldn't be over 32 bit limit anyways)
+            if eprocess.UniqueProcessId >= 2u64.pow(31) {
+                // println!("Skipping EPROCESS entry due to due to corrupt PID");
+            } else if eprocess.Pcb.StackCount < 1 {
+                // println!("Skipping EPROCESS entry due to due to StackCount = 0");
+            } else {
+                if pid_filter.is_none() || pid_filter.unwrap() == eprocess.UniqueProcessId {
+                    let peb = self.get_full_peb(curProc);
+                    let ldr = peb.read_loader_using_dirbase(&self, dirbase);
+                    let base_module_name =
+                        match ldr.getFirstInMemoryOrderModuleListWithDirbase(&self, dirbase) {
+                            None => eprocess.ImageFileName.iter().map(|b| *b as char).join(""),
+                            Some(m) => m
+                                .BaseDllName
+                                .resolve_with_dirbase(&self, dirbase, Some(512))
+                                .unwrap_or("unknown".to_string()),
+                        };
+                    m.insert(
+                        eprocess.UniqueProcessId,
+                        ProcKernelInfo::new(&base_module_name, eprocess, virtProcess, curProc),
+                    );
+                }
+            }
+
+            let vp: u64 = self.read_physical(curProc + self.native_ctx.offsets.apl as u64);
+            virtProcess = vp - self.native_ctx.offsets.apl as u64;
+            if virtProcess == 0 {
+                println!("Returning early from walking EPROCESS list due to VIRTPROC == 0");
+                break;
+            }
+            curProc = self.translate(self.native_ctx.initialProcess.dirBase, virtProcess);
+            if curProc == 0 {
+                println!("Returning early from walking EPROCESS list due to CURPROC == 0");
+                break;
+            }
+            if curProc == self.native_ctx.initialProcess.physProcess
+                || virtProcess == self.native_ctx.initialProcess.process
+            {
+                println!("Completed walking kernel EPROCESS list");
+                break;
+            }
+        }
+        return m;
+    }
+
+    pub fn walk_eprocess(&self) {
+        for (pid, info) in self.get_eprocess_entries(None).iter() {
+            println!(
+                "EPROCESS[pid={}, name={}, virtual=0x{:x}, phys=0x{:x}]",
+                pid, info.name, info.eprocessVirtAddr, info.eprocessPhysAddr
+            );
+        }
+    }
+
+    pub fn eprocess_for_pid(&self, pid: u64) -> Option<ProcKernelInfo> {
+        let procs = self.get_eprocess_entries(Some(pid));
+        match procs.get(&pid) {
+            Some(r) => Some(r.clone()),
+            None => None,
+        }
+    }
+
     pub fn list_process_modules(&self, proc: &mut WinProcess, refresh: bool) {
         if refresh {
             proc.refresh_modules(self.native_ctx);
@@ -299,17 +408,21 @@ impl VMSession {
         proc.get_peb(self.native_ctx)
     }
 
-    pub fn get_full_peb(&self, proc: &WinProcess) -> FullPEB {
+    pub fn get_full_peb(&self, physProcess: u64) -> FullPEB {
         let ptr: u64 = self
             .ctx
-            .read(proc.proc.physProcess + self.native_ctx.offsets.peb as u64);
+            .read(physProcess + self.native_ctx.offsets.peb as u64);
         // let pPEB: PtrForeign<FullPEB> = PtrForeign::new(ptr, self.clone(), Some(proc.clone()));
         // let peb: FullPEB = pPEB.read();
-        proc.read(&self.native_ctx, ptr)
+        self.read_physical(ptr)
+    }
+
+    pub fn get_full_peb_for_process(&self, proc: &WinProcess) -> FullPEB {
+        self.get_full_peb(proc.proc.physProcess)
     }
 
     pub fn get_process_heaps(&self, proc: &WinProcess) {
-        let peb = self.get_full_peb(proc);
+        let peb = self.get_full_peb_for_process(proc);
         for heap_index in 0..peb.NumberOfHeaps {
             let offset = heap_index as usize * size_of::<PROCESS_HEAP_ENTRY>();
             let heap: PROCESS_HEAP_ENTRY =

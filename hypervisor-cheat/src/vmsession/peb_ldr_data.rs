@@ -1,5 +1,6 @@
 use crate::vmsession::list_entry::ListEntry;
 use crate::vmsession::unicode_string::UnicodeString;
+use crate::vmsession::VMSession;
 use vmread::WinProcess;
 use vmread_sys::WinCtx;
 
@@ -19,6 +20,19 @@ pub struct PebLdrData {
 }
 
 impl PebLdrData {
+    pub fn getFirstInMemoryOrderModuleListWithDirbase(
+        &self,
+        vm: &VMSession,
+        dirbase: u64,
+    ) -> Option<LdrModule> {
+        // For some reason we get full paths on this
+        self.InMemoryOrderModuleList.getNextWithDirbase(
+            vm,
+            Some(dirbase),
+            std::mem::size_of::<ListEntry>() as u64,
+        )
+    }
+
     pub fn getFirstInLoadOrderModuleListForProcess(
         &self,
         native_ctx: &WinCtx,

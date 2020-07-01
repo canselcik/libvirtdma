@@ -9,6 +9,7 @@ extern crate vmread_sys;
 use self::regex::bytes::Regex;
 use self::term_table::row::Row;
 use crate::vmsession::eprocess::EPROCESS;
+use crate::vmsession::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
 use crate::vmsession::fullpeb::FullPEB;
 use crate::vmsession::heap_entry::ProcessHeapEntry;
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
@@ -225,13 +226,15 @@ impl VMSession {
         )]));
 
         table.add_row(Row::new(vec![
+            TableCell::new_with_alignment("PID", 1, Alignment::Left),
             TableCell::new_with_alignment("Name", 1, Alignment::Center),
             TableCell::new_with_alignment("Dirbase", 1, Alignment::Center),
             TableCell::new_with_alignment("Physical Addr", 1, Alignment::Center),
         ]));
 
-        let mut add_entry = |name, dirbase, phys| {
+        let mut add_entry = |pid, name, dirbase, phys| {
             table.add_row(Row::new(vec![
+                TableCell::new_with_alignment(format!("{}", pid), 1, Alignment::Left),
                 TableCell::new_with_alignment(name, 1, Alignment::Left),
                 TableCell::new_with_alignment(format!("0x{:x}", dirbase), 1, Alignment::Right),
                 TableCell::new_with_alignment(format!("0x{:x}", phys), 1, Alignment::Right),
@@ -242,7 +245,7 @@ impl VMSession {
                 continue;
             }
             let info: &vmread_sys::WinProc = &proc.proc;
-            add_entry(&proc.name, info.dirBase, info.physProcess);
+            add_entry(&proc.proc.pid, &proc.name, info.dirBase, info.physProcess);
         }
         println!("{}", table.render());
     }
@@ -360,10 +363,39 @@ impl VMSession {
     pub fn walk_eprocess(&self) {
         for (pid, info) in self.get_eprocess_entries(None).iter() {
             println!(
-                "EPROCESS[pid={}, name={}, virtual=0x{:x}, phys=0x{:x}]",
-                pid, info.name, info.eprocessVirtAddr, info.eprocessPhysAddr
+                "EPROCESS[pid={}, name={}, virtual=0x{:x}, phys=0x{:x}, activeThreads={}]",
+                pid,
+                info.name,
+                info.eprocessVirtAddr,
+                info.eprocessPhysAddr,
+                info.eprocess.ActiveThreads,
             );
         }
+    }
+
+    pub fn threads_from_eprocess(&self, info: &ProcKernelInfo) -> Vec<ETHREAD> {
+        // The non KPROCESS ThreadList doesn't seem to work but this is an okay workaround.
+        let mut kThNext: Option<ETHREAD> = info.eprocess.Pcb.ThreadListHead.getNextWithDirbase(
+            &self,
+            Some(info.eprocess.Pcb.DirectoryTableBase),
+            KTHREAD_THREAD_LIST_OFFSET,
+        );
+        let active_thread_count = info.eprocess.ActiveThreads;
+        let mut threads = Vec::with_capacity(active_thread_count as usize);
+        for _ in 0..active_thread_count {
+            match kThNext {
+                Some(curr) => {
+                    kThNext = curr.Tcb.ThreadListEntry.getNextWithDirbase(
+                        &self,
+                        Some(info.eprocess.Pcb.DirectoryTableBase),
+                        KTHREAD_THREAD_LIST_OFFSET,
+                    );
+                    threads.push(curr);
+                }
+                None => break,
+            }
+        }
+        return threads;
     }
 
     pub fn eprocess_for_pid(&self, pid: u64) -> Option<ProcKernelInfo> {

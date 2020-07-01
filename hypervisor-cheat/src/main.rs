@@ -10,9 +10,6 @@ extern crate vmread;
 extern crate vmread_sys;
 
 use crate::rust_external::*;
-use crate::vmsession::ethread::{
-    ETHREAD, ETHREAD_THREAD_LIST_OFFSET, KTHREAD, KTHREAD_THREAD_LIST_OFFSET,
-};
 use crate::vmsession::VMSession;
 use byteorder::ByteOrder;
 use linefeed::{Interface, ReadResult};
@@ -246,34 +243,27 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                 match vm.eprocess_for_pid(pid) {
                     None => println!("Unable to find a kernel EPROCESS entry for PID {}", pid),
                     Some(info) => {
-                        // println!("{:#?}", info);
-                        println!(
-                            "KPROCESS.ThreadListHead: 0x{:x}",
-                            info.eprocess.Pcb.ThreadListHead.Flink,
-                        );
-                        let dirbase = info.eprocess.Pcb.DirectoryTableBase;
-                        let kThNext: Option<KTHREAD> =
-                            info.eprocess.Pcb.ThreadListHead.getNextWithDirbase(
-                                vm.as_ref(),
-                                Some(dirbase),
-                                KTHREAD_THREAD_LIST_OFFSET,
-                            );
-                        if let Some(next) = kThNext {
-                            println!("KPROCESS.ThreadListHead next: {:#?}", next);
+                        println!("Found EPROCESS at VA 0x{:x}", info.eprocessVirtAddr);
+                        let threads = vm.threads_from_eprocess(&info);
+                        println!("Found {} linked ETHREADs", threads.len());
+                        for thread in threads.iter() {
+                            let moniker = if thread.ThreadName != 0 {
+                                vm.read_cstring_from_physical_mem(
+                                    vm.translate(
+                                        vm.native_ctx.initialProcess.dirBase,
+                                        thread.ThreadName,
+                                    ),
+                                    Some(32),
+                                )
+                            } else {
+                                format!("0x{:x}", thread.CidUniqueThread)
+                            };
+                            println!("  Found Thread '{}'", moniker);
                         }
-                        println!(
-                            "EPROCESS.ThreadListHead: 0x{:x}",
-                            info.eprocess.ThreadListHead.Flink,
-                        );
-                        let kThNext: Option<ETHREAD> =
-                            info.eprocess.ThreadListHead.getNextWithDirbase(
-                                vm.as_ref(),
-                                Some(dirbase),
-                                ETHREAD_THREAD_LIST_OFFSET,
-                            );
-                        if let Some(next) = kThNext {
-                            println!("EPROCESS.ThreadListHead next: {:#?}", next);
-                        }
+                        // println!(
+                        //     "First thread link points to 0x{:x}",
+                        //     info.eprocess.ThreadListHead.Flink,
+                        // );
                     }
                 }
             }

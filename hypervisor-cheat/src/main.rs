@@ -10,7 +10,7 @@ extern crate vmread;
 extern crate vmread_sys;
 
 use crate::rust_external::*;
-use crate::vmsession::fullpeb::{
+use crate::vmsession::ethread::{
     ETHREAD, ETHREAD_THREAD_LIST_OFFSET, KTHREAD, KTHREAD_THREAD_LIST_OFFSET,
 };
 use crate::vmsession::VMSession;

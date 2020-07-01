@@ -9,16 +9,18 @@ macro_rules! makeByteRange {
         }
     };
 }
+
 makeByteRange!(Bytes24, 24);
-makeByteRange!(Bytes1024, 1024);
-makeByteRange!(Bytes660, 0x294);
-makeByteRange!(Bytes168, 0xA8);
-makeByteRange!(Bytes80, 80);
-makeByteRange!(Bytes40, 40);
-makeByteRange!(Bytes71, 71);
-makeByteRange!(Bytes272, 0x110);
 makeByteRange!(Bytes32, 0x20);
+makeByteRange!(Bytes40, 40);
 makeByteRange!(Bytes48, 0x30);
-makeByteRange!(Bytes1520, 0x5f0);
-makeByteRange!(Bytes760, 760);
+makeByteRange!(Bytes71, 71);
+makeByteRange!(Bytes80, 80);
+makeByteRange!(Bytes96, 0x60);
+makeByteRange!(Bytes168, 0xA8);
+makeByteRange!(Bytes272, 0x110);
+makeByteRange!(Bytes660, 0x294);
 makeByteRange!(Bytes744, 744);
+makeByteRange!(Bytes760, 760);
+makeByteRange!(Bytes1024, 1024);
+makeByteRange!(Bytes1520, 0x5f0);

@@ -8,8 +8,10 @@ extern crate vmread_sys;
 
 use self::regex::bytes::Regex;
 use self::term_table::row::Row;
-use crate::vmsession::fullpeb::{FullPEB, ProcKernelInfo, EPROCESS};
-use crate::vmsession::heap_entry::PROCESS_HEAP_ENTRY;
+use crate::vmsession::eprocess::EPROCESS;
+use crate::vmsession::fullpeb::FullPEB;
+use crate::vmsession::heap_entry::ProcessHeapEntry;
+use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
 use itertools::Itertools;
 use memmem::Searcher;
 use pelite::image::{
@@ -29,10 +31,14 @@ use vmread::{WinContext, WinDll, WinProcess};
 use vmread_sys::{ProcessData, WinCtx, WinModule, PEB};
 
 mod bytesLargeFmt;
+pub mod eprocess;
+pub mod ethread;
 pub mod fullpeb;
 mod heap_entry;
 mod list_entry;
+pub mod peb_bitfield;
 mod peb_ldr_data;
+pub mod proc_kernelinfo;
 mod unicode_string;
 
 pub struct PtrForeign<T> {
@@ -424,8 +430,8 @@ impl VMSession {
     pub fn get_process_heaps(&self, proc: &WinProcess) {
         let peb = self.get_full_peb_for_process(proc);
         for heap_index in 0..peb.NumberOfHeaps {
-            let offset = heap_index as usize * size_of::<PROCESS_HEAP_ENTRY>();
-            let heap: PROCESS_HEAP_ENTRY =
+            let offset = heap_index as usize * size_of::<ProcessHeapEntry>();
+            let heap: ProcessHeapEntry =
                 proc.read(&self.native_ctx, peb.ProcessHeaps + offset as u64);
             println!(
                 "{}",

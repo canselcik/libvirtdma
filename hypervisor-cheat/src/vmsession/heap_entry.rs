@@ -38,7 +38,7 @@ pub union HeapBlockOrRegion {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct PROCESS_HEAP_ENTRY {
+pub struct ProcessHeapEntry {
     pub lpData: u64,      // void*
     pub cbData: u32,      // DWORD
     pub cbOverhead: u8,   // BYTE
@@ -56,7 +56,7 @@ pub enum HeapProperty {
     ProcessHeapUncommittedRange = 0x0002,
 }
 
-impl PROCESS_HEAP_ENTRY {
+impl ProcessHeapEntry {
     pub fn as_table(&self, title: Option<String>) -> String {
         let mut table = Table::new();
         table.max_column_width = 45;
@@ -64,7 +64,7 @@ impl PROCESS_HEAP_ENTRY {
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             match title {
                 Some(t) => t,
-                None => "PROCESS_HEAP_ENTRY".to_string(),
+                None => "ProcessHeapEntry".to_string(),
             },
             2,
             Alignment::Center,

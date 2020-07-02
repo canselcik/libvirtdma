@@ -1,26 +1,8 @@
-extern crate static_assertions as sa;
-use crate::vmsession::bytesLargeFmt::*;
-use crate::vmsession::list_entry::{ListEntry, SingleListEntry};
-
-// 0x810 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
-sa::const_assert!(std::mem::size_of::<ETHREAD>() == 0x810);
-
-// 0x5f0 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
-sa::const_assert!(std::mem::size_of::<KTHREAD>() == 0x5f0);
-
-// 0x10 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
-sa::const_assert!(std::mem::size_of::<GroupAffinity>() == 0x10);
+use crate::vmsession::win::list_entry::{ListEntry, SingleListEntry};
+use crate::vmsession::win::misc::*;
 
 pub const KTHREAD_THREAD_LIST_OFFSET: u64 = 0x2f8;
 pub const ETHREAD_THREAD_LIST_OFFSET: u64 = 0x6a8;
-
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct GroupAffinity {
-    pub Mask: u64,          //0x0
-    pub Group: u16,         //0x8
-    pub Reserved: [u16; 3], //0xa
-}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

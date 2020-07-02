@@ -1,4 +1,4 @@
-use crate::vmsession::eprocess::EPROCESS;
+use crate::vmsession::win::eprocess::EPROCESS;
 
 #[derive(Debug, Clone)]
 pub struct ProcKernelInfo {

@@ -1,3 +1,11 @@
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct GroupAffinity {
+    pub Mask: u64,          //0x0
+    pub Group: u16,         //0x8
+    pub Reserved: [u16; 3], //0xa
+}
+
 macro_rules! makeByteRange {
     ($name:ident, $length:expr) => {
         #[derive(Copy, Clone)]

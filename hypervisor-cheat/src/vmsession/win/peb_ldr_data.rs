@@ -1,5 +1,5 @@
-use crate::vmsession::list_entry::ListEntry;
-use crate::vmsession::unicode_string::UnicodeString;
+use crate::vmsession::win::list_entry::ListEntry;
+use crate::vmsession::win::unicode_string::UnicodeString;
 use crate::vmsession::VMSession;
 use vmread::WinProcess;
 use vmread_sys::WinCtx;

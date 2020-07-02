@@ -1,6 +1,6 @@
-use crate::vmsession::bytesLargeFmt::*;
-use crate::vmsession::peb_bitfield::PEBBitfield;
-use crate::vmsession::peb_ldr_data::PebLdrData;
+use crate::vmsession::win::misc::*;
+use crate::vmsession::win::peb_bitfield::PEBBitfield;
+use crate::vmsession::win::peb_ldr_data::PebLdrData;
 use crate::vmsession::VMSession;
 use vmread::WinProcess;
 

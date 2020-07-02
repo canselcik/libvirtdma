@@ -1,12 +1,5 @@
-extern crate static_assertions as sa;
-use crate::vmsession::bytesLargeFmt::*;
-use crate::vmsession::list_entry::{ListEntry, SingleListEntry};
-
-// 0x2d8 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
-sa::const_assert!(std::mem::size_of::<KPROCESS>() == 0x2d8);
-
-// 0x850 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
-sa::const_assert!(std::mem::size_of::<EPROCESS>() == 0x850);
+use crate::vmsession::win::list_entry::{ListEntry, SingleListEntry};
+use crate::vmsession::win::misc::*;
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

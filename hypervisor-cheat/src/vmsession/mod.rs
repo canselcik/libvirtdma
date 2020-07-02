@@ -8,11 +8,11 @@ extern crate vmread_sys;
 
 use self::regex::bytes::Regex;
 use self::term_table::row::Row;
-use crate::vmsession::eprocess::EPROCESS;
-use crate::vmsession::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
-use crate::vmsession::fullpeb::FullPEB;
-use crate::vmsession::heap_entry::ProcessHeapEntry;
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
+use crate::vmsession::win::eprocess::EPROCESS;
+use crate::vmsession::win::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
+use crate::vmsession::win::heap_entry::ProcessHeapEntry;
+use crate::vmsession::win::peb::FullPEB;
 use itertools::Itertools;
 use memmem::Searcher;
 use pelite::image::{
@@ -31,41 +31,9 @@ use term_table::{Table, TableStyle};
 use vmread::{WinContext, WinDll, WinProcess};
 use vmread_sys::{ProcessData, WinCtx, WinModule, PEB};
 
-mod bytesLargeFmt;
-pub mod eprocess;
-pub mod ethread;
-pub mod fullpeb;
-mod heap_entry;
-mod list_entry;
-pub mod peb_bitfield;
-mod peb_ldr_data;
 pub mod proc_kernelinfo;
-mod unicode_string;
-
-pub struct PtrForeign<T> {
-    ptr: u64,
-    vm: std::sync::Arc<VMSession>,
-    proc: Option<WinProcess>,
-    typ: PhantomData<*const T>,
-}
-
-impl<T> PtrForeign<T> {
-    pub fn new(ptr: u64, vm: std::sync::Arc<VMSession>, proc: Option<WinProcess>) -> PtrForeign<T> {
-        return PtrForeign {
-            ptr,
-            vm,
-            proc,
-            typ: PhantomData,
-        };
-    }
-
-    pub fn read(&self) -> T {
-        match &self.proc {
-            Some(proc) => proc.read(&self.vm.native_ctx, self.ptr),
-            None => self.vm.ctx.read(self.ptr),
-        }
-    }
-}
+pub mod ptrforeign;
+pub mod win;
 
 pub struct VMSession {
     self_ref: RwLock<Option<Arc<Self>>>,

@@ -1,6 +1,6 @@
-use super::term_table::row::Row;
-use super::term_table::table_cell::{Alignment, TableCell};
-use super::term_table::{Table, TableStyle};
+use super::super::term_table::row::Row;
+use super::super::term_table::table_cell::{Alignment, TableCell};
+use super::super::term_table::{Table, TableStyle};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

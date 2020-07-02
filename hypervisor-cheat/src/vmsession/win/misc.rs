@@ -18,6 +18,18 @@ macro_rules! makeByteRange {
     };
 }
 
+macro_rules! makeTypeRange {
+    ($name:ident, $typ: tt, $length:expr) => {
+        #[derive(Copy, Clone)]
+        pub struct $name([$typ; $length]);
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}(...)", stringify!($name))
+            }
+        }
+    };
+}
+
 makeByteRange!(Bytes1024, 1024);
 makeByteRange!(Bytes1520, 0x5f0);
 makeByteRange!(Bytes168, 0xA8);
@@ -35,3 +47,9 @@ makeByteRange!(Bytes744, 744);
 makeByteRange!(Bytes80, 80);
 makeByteRange!(Bytes88, 0x58);
 makeByteRange!(Bytes96, 0x60);
+makeByteRange!(Bytes1256, 1256);
+makeByteRange!(Bytes496, 496);
+
+makeTypeRange!(DoubleBytes261, u16, 261);
+makeTypeRange!(VoidPointers64, u64, 64);
+makeTypeRange!(VoidPointers233, u64, 233);

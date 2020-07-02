@@ -1,13 +1,4 @@
 #![allow(dead_code)]
-extern crate memmem;
-extern crate pelite;
-extern crate regex;
-extern crate term_table;
-extern crate vmread;
-extern crate vmread_sys;
-
-use self::regex::bytes::Regex;
-use self::term_table::row::Row;
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
 use crate::vmsession::win::eprocess::EPROCESS;
 use crate::vmsession::win::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
@@ -19,12 +10,14 @@ use pelite::image::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS64, IMAGE_NT_HEADERS_SIGNATURE,
     IMAGE_NT_OPTIONAL_HDR64_MAGIC,
 };
+use regex::bytes::Regex;
 use std::collections::HashMap;
 use std::iter::FromIterator;
 use std::mem::size_of;
 use std::mem::ManuallyDrop;
 use std::str;
 use std::sync::{Arc, RwLock};
+use term_table::row::Row;
 use term_table::table_cell::{Alignment, TableCell};
 use term_table::{Table, TableStyle};
 use vmread::{WinContext, WinDll, WinProcess};
@@ -320,7 +313,7 @@ impl VMSession {
             if curProc == self.native_ctx.initialProcess.physProcess
                 || virtProcess == self.native_ctx.initialProcess.process
             {
-                println!("Completed walking kernel EPROCESS list");
+                // println!("Completed walking kernel EPROCESS list");
                 break;
             }
         }

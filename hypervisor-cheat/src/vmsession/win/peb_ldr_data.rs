@@ -33,6 +33,15 @@ impl PebLdrData {
         )
     }
 
+    pub fn getFirstInLoadOrderModuleListWithDirbase(
+        &self,
+        vm: &VMSession,
+        dirbase: u64,
+    ) -> Option<LdrModule> {
+        self.InLoadOrderModuleList
+            .getNextWithDirbase(vm, Some(dirbase), 0)
+    }
+
     pub fn getFirstInLoadOrderModuleListForProcess(
         &self,
         native_ctx: &WinCtx,
@@ -94,6 +103,27 @@ impl LdrModule {
     ) -> Option<LdrModule> {
         self.InLoadOrderModuleList
             .getNextFromProcess(native_ctx, proc, 0)
+    }
+
+    pub fn getNextInLoadOrderModuleListWithDirbase(
+        &self,
+        vm: &VMSession,
+        dirbase: Option<u64>,
+    ) -> Option<LdrModule> {
+        self.InLoadOrderModuleList
+            .getNextWithDirbase(vm, dirbase, 0)
+    }
+
+    pub fn getNextInMemoryOrderModuleListWithDirbase(
+        &self,
+        vm: &VMSession,
+        dirbase: Option<u64>,
+    ) -> Option<LdrModule> {
+        self.InMemoryOrderModuleList.getNextWithDirbase(
+            vm,
+            dirbase,
+            std::mem::size_of::<ListEntry>() as u64,
+        )
     }
 
     pub fn getNextInMemoryOrderModuleListForProcess(

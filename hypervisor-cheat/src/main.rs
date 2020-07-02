@@ -1,15 +1,10 @@
 #![feature(new_uninit)]
 #![allow(unused_macros, non_snake_case)]
-extern crate bsdiff;
-extern crate byteorder;
-extern crate hex;
-extern crate hexdump;
-extern crate linefeed;
-extern crate shlex;
-extern crate vmread;
-extern crate vmread_sys;
+#[macro_use]
+extern crate c2rust_bitfields;
 
 use crate::rust_external::*;
+use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
 use crate::vmsession::VMSession;
 use byteorder::ByteOrder;
 use linefeed::{Interface, ReadResult};
@@ -208,69 +203,253 @@ fn rust_routine(vm: &mut VMSession) {
 
 fn show_usage() {
     println!(
-        r#"Available commands:
-    eprocess:             shows full EPROCESS for process with pid $1
+        r#"
+Process Context Commands:
+    pmemread              read $2 bytes from PVA $1
+    eprocess              show full EPROCESS for the open process  
+    peb                   print the full PEB of the open process
+
+General Context Commands:
+    openpid               enter process context for PID $1
+
+    openproc              enter process context for the first process with name $1
+    openprocess           
+
+    close                 leave the process context 
+
+    listproc              list all running processes
+    listprocs
+    listprocess           
+    listprocesses
+
+    listkmod              list loaded kernel modules
+    listkmods
+
+    eprocess:             shows full EPROCESS for process with pid $1    
     walk_eprocess:        iterates over eprocess
     rust:                 runs the rust subroutine
     kmod_to_file:         dump kernel module with the name $1 to disk
-    list_kmods:           list loaded kernel modules
+
     memread:              read $2 bytes of physical memory from $1
     mem2file              read $2 bytes of physical memory from $1 to $3
-    pmemread:             read $2 bytes of process memory from process named $1
-    list_processes:       list all running processes
     list_process_modules: list all modules of process named $1
     heaps:                list all heaps of process named $1
-    peb:                  print the full PEB of process named $1
     pinspect:             inspect process named $1
+
     quit | exit:          exit the program
-    usage:                print this message"#
+    usage:                print this message\n"#
     );
 }
 
-fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
+fn dispatch_commands(
+    vm: std::sync::Arc<VMSession>,
+    parts: Vec<String>,
+    context: &mut Option<ProcKernelInfo>,
+) -> Option<DispatchCommandReturnAction> {
     match parts[0].as_ref() {
-        "eprocess" => {
+        "listkmod" | "listkmods" => vm.as_mut().list_kmods(true),
+        "listproc" | "listprocs" | "listprocess" | "listprocesses" => {
+            vm.as_mut().list_process(true, true)
+        }
+        "close" => {
+            return match context {
+                None => {
+                    println!("You are not in any context");
+                    None
+                }
+                Some(proc) => {
+                    println!(
+                        "Leaving context of process with PID {}...",
+                        proc.eprocess.UniqueProcessId
+                    );
+                    Some(DispatchCommandReturnAction::ExitContext)
+                }
+            }
+        }
+        "openpid" => {
             if parts.len() != 2 {
-                println!("usage: eprocess <PID>");
+                println!("usage: openpid <PID>");
             } else {
                 let pid = match parse_u64(&parts[1], false) {
                     Some(h) => h,
                     None => {
                         println!("unable to parse PID");
-                        return;
+                        return None;
                     }
                 };
-                match vm.eprocess_for_pid(pid) {
-                    None => println!("Unable to find a kernel EPROCESS entry for PID {}", pid),
-                    Some(info) => {
-                        println!("Found EPROCESS at VA 0x{:x}", info.eprocessVirtAddr);
-                        let threads = vm.threads_from_eprocess(&info);
-                        println!("Found {} linked ETHREADs", threads.len());
-                        for thread in threads.iter() {
-                            let moniker = if thread.ThreadName != 0 {
-                                vm.read_cstring_from_physical_mem(
-                                    vm.translate(
-                                        vm.native_ctx.initialProcess.dirBase,
-                                        thread.ThreadName,
-                                    ),
-                                    Some(32),
-                                )
-                            } else {
-                                format!("0x{:x}", thread.CidUniqueThread)
-                            };
-                            println!(
-                                "  Found Thread '{}' with TEB PVA @ 0x{:x}",
-                                moniker, thread.Tcb.Teb
-                            );
-                        }
-                        // println!(
-                        //     "First thread link points to 0x{:x}",
-                        //     info.eprocess.ThreadListHead.Flink,
-                        // );
+                return match vm.eprocess_for_pid(pid) {
+                    None => {
+                        println!("Unable to find a kernel EPROCESS entry for PID {}", pid);
+                        None
                     }
+                    Some(info) => Some(DispatchCommandReturnAction::EnterProcessContext(info)),
+                };
+            }
+        }
+        "openproc" | "openprocess" => {
+            if parts.len() != 2 {
+                println!("usage: openprocess <ProcessName>");
+            } else {
+                return match vm.as_mut().find_process(&parts[1], false, true, true) {
+                    None => {
+                        println!("Unable to find a process with name '{}'", &parts[1]);
+                        None
+                    }
+                    Some(proc) => match vm.eprocess_for_pid(proc.proc.pid) {
+                        None => {
+                            println!(
+                                "Unable to find a kernel EPROCESS entry for PID {}",
+                                proc.proc.pid
+                            );
+                            None
+                        }
+                        Some(info) => Some(DispatchCommandReturnAction::EnterProcessContext(info)),
+                    },
+                };
+            }
+        }
+        "pmemread" => {
+            if parts.len() != 3 {
+                println!("usage: pmemread <hVA> <hSize>");
+            } else {
+                let hVA = match parse_u64(&parts[1], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hVA");
+                        return None;
+                    }
+                };
+                let hSize = match parse_u64(&parts[2], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hSize");
+                        return None;
+                    }
+                };
+                match context {
+                    None => {
+                        println!("You need to enter a context using an open command first");
+                        return None;
+                    }
+                    Some(proc) => match vm.getvmem(
+                        Some(proc.eprocess.Pcb.DirectoryTableBase),
+                        hVA,
+                        hVA + hSize,
+                    ) {
+                        None => println!("Unable to read memory"),
+                        Some(data) => hexdump::hexdump(&data),
+                    },
                 }
             }
         }
+        "loader" => match context {
+            Some(info) => {
+                let peb = vm.get_full_peb(info.eprocessPhysAddr);
+                let loader =
+                    peb.read_loader_using_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
+                println!("{:#?}", loader);
+            }
+            None => println!("usage: loader (after entering a process context"),
+        },
+        "threads" => match context {
+            Some(info) => {
+                let threads = vm.threads_from_eprocess(info);
+                if threads.is_empty() {
+                    println!("Unable to find any threads");
+                }
+                for t in threads.iter() {
+                    println!("{:#?}", t);
+                }
+            }
+            None => println!("usage: threads (after entering a process context"),
+        },
+        "modules" => match context {
+            Some(info) => {
+                let peb = vm.get_full_peb(info.eprocessPhysAddr);
+                let loader =
+                    peb.read_loader_using_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
+                let mut idx = 0;
+                let mut module = loader.getFirstInLoadOrderModuleListWithDirbase(
+                    &vm,
+                    info.eprocess.Pcb.DirectoryTableBase,
+                );
+                loop {
+                    if module.is_none() || idx >= loader.Length {
+                        break;
+                    }
+                    let m = module.unwrap();
+                    let name = match m.BaseDllName.resolve_with_dirbase(
+                        &vm,
+                        info.eprocess.Pcb.DirectoryTableBase,
+                        Some(512),
+                    ) {
+                        Some(n) => n,
+                        None => "unknown".to_string(),
+                    };
+                    println!("  LOADED MODULE {}: {}", idx, name);
+                    module = m.getNextInLoadOrderModuleListWithDirbase(
+                        &vm,
+                        Some(info.eprocess.Pcb.DirectoryTableBase),
+                    );
+                    idx += 1;
+                }
+            }
+            None => println!("usage: modules (after entering a process context"),
+        },
+        "eprocess" => {
+            let pid = if parts.len() != 2 && context.is_none() {
+                println!("usage: eprocess <PID> or enter a process context first");
+                return None;
+            } else if let Some(proc) = context {
+                proc.eprocess.UniqueProcessId
+            } else {
+                match parse_u64(&parts[1], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse PID");
+                        return None;
+                    }
+                }
+            };
+            match vm.eprocess_for_pid(pid) {
+                None => println!("Unable to find a kernel EPROCESS entry for PID {}", pid),
+                Some(info) => {
+                    println!(
+                        "Found EPROCESS at VA 0x{:x}\n{:#?}",
+                        info.eprocessVirtAddr, info.eprocess
+                    );
+                    // let threads = vm.threads_from_eprocess(&info);
+                    // println!("Found {} linked ETHREADs", threads.len());
+                    // for thread in threads.iter() {
+                    //     let moniker = if thread.ThreadName != 0 {
+                    //         vm.read_cstring_from_physical_mem(
+                    //             vm.translate(
+                    //                 vm.native_ctx.initialProcess.dirBase,
+                    //                 thread.ThreadName,
+                    //             ),
+                    //             Some(32),
+                    //         )
+                    //     } else {
+                    //         format!("0x{:x}", thread.CidUniqueThread)
+                    //     };
+                    //     println!(
+                    //         "  Found Thread '{}' with TEB PVA @ 0x{:x}",
+                    //         moniker, thread.Tcb.Teb
+                    //     );
+                    //
+                    //     let teb: TEB = vm.read_physical(
+                    //         vm.translate(info.eprocess.Pcb.DirectoryTableBase, thread.Tcb.Teb),
+                    //     );
+                    //     println!("  TEB: {:#?}", teb);
+                    // }
+                }
+            };
+        }
+        "peb" => match context {
+            Some(info) => println!("{:#?}", vm.get_full_peb(info.eprocessPhysAddr)),
+            None => println!("usage: peb (after entering a process context"),
+        },
+
         "mem2file" => {
             if parts.len() != 4 {
                 println!("usage: mem2file <hPA> <hSize> <sFile>");
@@ -279,14 +458,14 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                     Some(h) => h,
                     None => {
                         println!("unable to parse hPA");
-                        return;
+                        return None;
                     }
                 };
                 let hSize = match parse_u64(&parts[2], false) {
                     Some(h) => h,
                     None => {
                         println!("unable to parse hSize");
-                        return;
+                        return None;
                     }
                 };
                 match vm.getvmem(None, hPA, hPA + hSize) {
@@ -306,7 +485,6 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
         "rust" => rust_routine(vm.as_mut()),
         "quit" | "exit" => std::process::exit(0),
         "kmod_to_file" => kmod_to_file(vm.as_mut(), &parts),
-        "list_kmods" => vm.as_mut().list_kmods(true),
         "memread" => {
             if parts.len() != 3 {
                 println!("usage: pmemread <hPA> <hSize>");
@@ -315,14 +493,14 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                     Some(h) => h,
                     None => {
                         println!("unable to parse hPA");
-                        return;
+                        return None;
                     }
                 };
                 let hSize = match parse_u64(&parts[2], false) {
                     Some(h) => h,
                     None => {
                         println!("unable to parse hSize");
-                        return;
+                        return None;
                     }
                 };
                 match vm.getvmem(None, hPA, hPA + hSize) {
@@ -331,35 +509,6 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                 };
             }
         }
-        "pmemread" => {
-            if parts.len() != 4 {
-                println!("usage: pmemread explorer.exe <hVA> <hSize>");
-            } else {
-                let procname = &parts[1];
-                let hVA = match parse_u64(&parts[2], false) {
-                    Some(h) => h,
-                    None => {
-                        println!("unable to parse hVA");
-                        return;
-                    }
-                };
-                let hSize = match parse_u64(&parts[3], false) {
-                    Some(h) => h,
-                    None => {
-                        println!("unable to parse hSize");
-                        return;
-                    }
-                };
-                match vm.as_mut().find_process(procname, false, true, true) {
-                    None => println!("Unable to find a process with matching name"),
-                    Some(proc) => match vm.getvmem(Some(proc.proc.dirBase), hVA, hVA + hSize) {
-                        None => println!("Unable to read memory"),
-                        Some(data) => hexdump::hexdump(&data),
-                    },
-                }
-            }
-        }
-        "list_processes" => vm.as_mut().list_process(true, true),
         "list_process_modules" => {
             if parts.len() != 2 {
                 println!("Usage: list_process_modules explorer.exe")
@@ -380,44 +529,6 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
                 }
             }
         }
-        "peb" => {
-            if parts.len() != 2 {
-                println!("Usage: peb explorer.exe")
-            } else {
-                match vm.as_mut().find_process(&parts[1], false, true, true) {
-                    None => println!("Unable to find a process with matching name"),
-                    Some(proc) => {
-                        let peb = vm.get_full_peb_for_process(&proc);
-                        println!("PEB: {:#?}", peb);
-
-                        let loader = peb.read_loader(&vm, &proc);
-                        println!("Loader: {:#?}", loader);
-
-                        let mut idx = 0;
-                        let mut module =
-                            loader.getFirstInMemoryOrderModuleListForProcess(&vm.native_ctx, &proc);
-                        loop {
-                            if module.is_none() || idx >= loader.Length {
-                                break;
-                            }
-                            let m = module.unwrap();
-                            let name = match m.BaseDllName.resolve_in_process(
-                                &vm.native_ctx,
-                                &proc,
-                                Some(512),
-                            ) {
-                                Some(n) => n,
-                                None => "unknown".to_string(),
-                            };
-                            println!("  LOADED MODULE {}: {}", idx, name);
-                            module =
-                                m.getNextInMemoryOrderModuleListForProcess(&vm.native_ctx, &proc);
-                            idx += 1;
-                        }
-                    }
-                }
-            }
-        }
         "pinspect" => {
             if parts.len() != 2 {
                 println!("Usage: list_process_sections explorer.exe")
@@ -434,6 +545,14 @@ fn dispatch_commands(vm: std::sync::Arc<VMSession>, parts: Vec<String>) {
             show_usage()
         }
     }
+    return None;
+}
+
+#[allow(dead_code)]
+enum DispatchCommandReturnAction {
+    EnterProcessContext(ProcKernelInfo),
+    ExitContext,
+    EnterKernelContext,
 }
 
 fn main() {
@@ -442,16 +561,21 @@ fn main() {
     println!("#  Hypervisor Shell   ");
     println!("######################\n");
     let interface = Interface::new("hypervisor").unwrap();
-    let text = "hypervisor> ";
-    interface
-        .set_prompt(&format!(
-            "\x01{prefix}\x02{text}\x01{suffix}\x02",
-            prefix = "", //style.prefix(),
-            text = text,
-            suffix = "", //style.suffix()
-        ))
-        .unwrap();
 
+    let set_interface_text = |s: &str| {
+        interface
+            .set_prompt(&format!(
+                "\x01{prefix}\x02{text}\x01{suffix}\x02",
+                prefix = "", //style.prefix(),
+                text = format!("hypervisor{}> ", s),
+                suffix = "", //style.suffix()
+            ))
+            .unwrap();
+    };
+
+    set_interface_text("");
+
+    let mut open_process: Option<ProcKernelInfo> = None;
     while let ReadResult::Input(line) = interface.read_line().unwrap() {
         match shlex::split(&line) {
             None => println!("Empty/None command invalid"),
@@ -459,7 +583,26 @@ fn main() {
                 if parts.is_empty() {
                     println!("Empty command invalid")
                 } else {
-                    dispatch_commands(std::sync::Arc::clone(&vm), parts)
+                    if let Some(context_action) =
+                        dispatch_commands(std::sync::Arc::clone(&vm), parts, &mut open_process)
+                    {
+                        match context_action {
+                            DispatchCommandReturnAction::EnterKernelContext => {
+                                println!("not implemented yet");
+                            }
+                            DispatchCommandReturnAction::ExitContext => {
+                                set_interface_text("");
+                                open_process = None;
+                            }
+                            DispatchCommandReturnAction::EnterProcessContext(pki) => {
+                                set_interface_text(&format!(
+                                    "[pid={}]",
+                                    pki.eprocess.UniqueProcessId
+                                ));
+                                open_process = Some(pki);
+                            }
+                        }
+                    }
                 }
             }
         }

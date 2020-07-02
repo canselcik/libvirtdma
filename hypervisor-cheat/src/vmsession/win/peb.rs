@@ -9,7 +9,7 @@ impl FullPEB {
         proc.read(&vm.native_ctx, self.Ldr)
     }
     pub fn read_loader_using_dirbase(&self, vm: &VMSession, dirbase: u64) -> PebLdrData {
-        vm.read_physical(vm.translate(dirbase, self.Ldr))
+        vm.read_with_dirbase(dirbase, self.Ldr)
     }
 }
 

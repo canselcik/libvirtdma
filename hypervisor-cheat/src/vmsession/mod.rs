@@ -143,6 +143,27 @@ impl VMSession {
         return None;
     }
 
+    pub fn find_process_with_pid(
+        &mut self,
+        pid: u64,
+        require_alive: bool,
+        refresh: bool,
+    ) -> Option<WinProcess> {
+        if refresh {
+            self.ctx.refresh_processes();
+        }
+        let mut proc_list = self.ctx.process_list.clone();
+        for proc in proc_list.iter_mut() {
+            if require_alive && !proc.is_valid_pe(self.native_ctx) {
+                continue;
+            }
+            if proc.proc.pid == pid {
+                return Some(proc.clone().into());
+            }
+        }
+        return None;
+    }
+
     pub fn find_process(
         &mut self,
         name: &str,
@@ -547,6 +568,10 @@ impl VMSession {
 
     pub fn read_physical<T>(&self, address: u64) -> T {
         self.ctx.read(address)
+    }
+
+    pub fn read_with_dirbase<T>(&self, dirbase: u64, address: u64) -> T {
+        self.ctx.read(self.translate(dirbase, address))
     }
 
     fn _getvmem(&self, dirbase: Option<u64>, local_begin: u64, begin: u64, end: u64) -> i64 {

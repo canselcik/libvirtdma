@@ -20,6 +20,21 @@ pub struct PebLdrData {
 }
 
 impl PebLdrData {
+    pub fn likelyInvalid(&self) -> bool {
+        self.Length == 0
+            && self.Initialized == 0
+            && self.SsHandle == 0
+            && self.InLoadOrderModuleList.Flink == 0
+            && self.InLoadOrderModuleList.Blink == 0
+            && self.InMemoryOrderModuleList.Flink == 0
+            && self.InMemoryOrderModuleList.Blink == 0
+            && self.InInitializationOrderModuleList.Flink == 0
+            && self.InInitializationOrderModuleList.Blink == 0
+            && self.EntryInProgress == 0
+            && self.ShutdownInProgress == 0
+            && self.ShutdownThreadId == 0
+    }
+
     pub fn getFirstInMemoryOrderModuleListWithDirbase(
         &self,
         vm: &VMSession,

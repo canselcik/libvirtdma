@@ -344,7 +344,8 @@ fn dispatch_commands(
         }
         "loader" => match context {
             Some(info) => {
-                let peb = vm.get_full_peb(info.eprocessPhysAddr);
+                let peb =
+                    vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
                 let loader =
                     peb.read_loader_using_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
                 println!("{:#?}", loader);
@@ -365,7 +366,8 @@ fn dispatch_commands(
         },
         "modules" => match context {
             Some(info) => {
-                let peb = vm.get_full_peb(info.eprocessPhysAddr);
+                let peb =
+                    vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
                 let loader =
                     peb.read_loader_using_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
                 let mut idx = 0;
@@ -446,7 +448,10 @@ fn dispatch_commands(
             };
         }
         "peb" => match context {
-            Some(info) => println!("{:#?}", vm.get_full_peb(info.eprocessPhysAddr)),
+            Some(info) => println!(
+                "{:#?}",
+                vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr)
+            ),
             None => println!("usage: peb (after entering a process context"),
         },
 

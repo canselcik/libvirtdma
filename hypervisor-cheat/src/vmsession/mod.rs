@@ -303,7 +303,7 @@ impl VMSession {
                 // println!("Skipping EPROCESS entry due to due to StackCount = 0");
             } else {
                 if pid_filter.is_none() || pid_filter.unwrap() == eprocess.UniqueProcessId {
-                    let peb = self.get_full_peb(curProc);
+                    let peb = self.get_full_peb(eprocess.Pcb.DirectoryTableBase, curProc);
                     let ldr = peb.read_loader_using_dirbase(&self, dirbase);
                     let base_module_name =
                         match ldr.getFirstInMemoryOrderModuleListWithDirbase(&self, dirbase) {
@@ -427,17 +427,17 @@ impl VMSession {
         proc.get_peb(self.native_ctx)
     }
 
-    pub fn get_full_peb(&self, physProcess: u64) -> FullPEB {
+    pub fn get_full_peb(&self, dirbase: u64, physProcess: u64) -> FullPEB {
         let ptr: u64 = self
             .ctx
             .read(physProcess + self.native_ctx.offsets.peb as u64);
         // let pPEB: PtrForeign<FullPEB> = PtrForeign::new(ptr, self.clone(), Some(proc.clone()));
         // let peb: FullPEB = pPEB.read();
-        self.read_physical(ptr)
+        self.read_physical(self.translate(dirbase, ptr))
     }
 
     pub fn get_full_peb_for_process(&self, proc: &WinProcess) -> FullPEB {
-        self.get_full_peb(proc.proc.physProcess)
+        self.get_full_peb(proc.proc.dirBase, proc.proc.physProcess)
     }
 
     pub fn get_process_heaps(&self, proc: &WinProcess) {

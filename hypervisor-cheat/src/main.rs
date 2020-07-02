@@ -584,11 +584,27 @@ enum DispatchCommandReturnAction {
 
 fn main() {
     let vm = vmsession::VMSession::new().expect("Failed to initialize");
+    let histfile = format!(
+        "{}/.vmread_hist",
+        match dirs::home_dir() {
+            Some(h) => h.as_path().display().to_string(),
+            None => ".".to_string(),
+        }
+    );
     println!("\n######################");
     println!("#  Hypervisor Shell   ");
     println!("######################\n");
     let interface = Interface::new("hypervisor").unwrap();
-
+    if let Err(e) = interface.load_history(histfile.clone()) {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            println!(
+                "History file {} doesn't exist, not loading history.",
+                histfile.clone(),
+            );
+        } else {
+            eprintln!("Could not load history file {}: {}", histfile.clone(), e);
+        }
+    }
     let set_interface_text = |s: &str| {
         interface
             .set_prompt(&format!(
@@ -634,5 +650,8 @@ fn main() {
             }
         }
         interface.add_history_unique(line);
+        if let Err(e) = interface.save_history(histfile.clone()) {
+            eprintln!("Could not save history file {}: {}", histfile.clone(), e);
+        }
     }
 }

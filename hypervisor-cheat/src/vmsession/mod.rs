@@ -21,7 +21,6 @@ use pelite::image::{
 };
 use std::collections::HashMap;
 use std::iter::FromIterator;
-use std::marker::PhantomData;
 use std::mem::size_of;
 use std::mem::ManuallyDrop;
 use std::str;

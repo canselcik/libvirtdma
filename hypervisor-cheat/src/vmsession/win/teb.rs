@@ -58,8 +58,8 @@ pub struct ActivationContextStack {
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 pub struct ClientID {
-    pub UniqueProcess: *mut libc::c_void,
-    pub UniqueThread: *mut libc::c_void,
+    pub UniqueProcess: u64,
+    pub UniqueThread: u64,
 }
 
 #[derive(Copy, Clone, Debug)]

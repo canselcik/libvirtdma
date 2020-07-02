@@ -202,7 +202,7 @@ impl VMSession {
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             "Processes",
-            3,
+            4,
             Alignment::Center,
         )]));
 
@@ -407,18 +407,14 @@ impl VMSession {
             TableCell::new_with_alignment("End", 1, Alignment::Center),
         ]));
 
-        let mut add_entry = |name, dirbase, phys| {
-            table.add_row(Row::new(vec![
-                TableCell::new_with_alignment(name, 1, Alignment::Left),
-                TableCell::new_with_alignment(format!("0x{:x}", dirbase), 1, Alignment::Right),
-                TableCell::new_with_alignment(format!("0x{:x}", phys), 1, Alignment::Right),
-            ]));
-        };
-
         for m in proc.module_list.iter() {
             let begin = m.info.baseAddress;
             let end = begin + m.info.sizeOfModule;
-            add_entry(&m.name, begin, end);
+            table.add_row(Row::new(vec![
+                TableCell::new_with_alignment(&m.name, 1, Alignment::Left),
+                TableCell::new_with_alignment(format!("0x{:x}", begin), 1, Alignment::Right),
+                TableCell::new_with_alignment(format!("0x{:x}", end), 1, Alignment::Right),
+            ]));
         }
         println!("{}", table.render());
     }
@@ -440,17 +436,16 @@ impl VMSession {
         self.get_full_peb(proc.proc.dirBase, proc.proc.physProcess)
     }
 
-    pub fn get_process_heaps(&self, proc: &WinProcess) {
-        let peb = self.get_full_peb_for_process(proc);
+    pub fn get_heaps_with_dirbase(&self, dirbase: u64, physProcess: u64) -> Vec<ProcessHeapEntry> {
+        let peb = self.get_full_peb(dirbase, physProcess);
+        let mut res: Vec<ProcessHeapEntry> = Vec::new();
         for heap_index in 0..peb.NumberOfHeaps {
             let offset = heap_index as usize * size_of::<ProcessHeapEntry>();
             let heap: ProcessHeapEntry =
-                proc.read(&self.native_ctx, peb.ProcessHeaps + offset as u64);
-            println!(
-                "{}",
-                heap.as_table(Some(format!("Heap Entry {}", heap_index)))
-            );
+                self.read_with_dirbase(dirbase, peb.ProcessHeaps + offset as u64);
+            res.push(heap);
         }
+        return res;
     }
 
     pub fn pinspect(&self, proc: &mut WinProcess, refresh: bool) {

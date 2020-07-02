@@ -5,6 +5,7 @@ extern crate c2rust_bitfields;
 
 use crate::rust_external::*;
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
+use crate::vmsession::win::teb::TEB;
 use crate::vmsession::VMSession;
 use byteorder::ByteOrder;
 use linefeed::{Interface, ReadResult};
@@ -206,14 +207,19 @@ fn show_usage() {
         r#"
 Process Context Commands:
     pmemread              read $2 bytes from PVA $1
-    eprocess              show full EPROCESS for the open process  
+    eprocess              show full EPROCESS for the open process [or process with PID $1]
     peb                   print the full PEB of the open process
+    tebs
+    threads
+    loader
+    modules
+    heaps
 
 General Context Commands:
     openpid               enter process context for PID $1
 
     openproc              enter process context for the first process with name $1
-    openprocess           
+    openprocess
 
     close                 leave the process context 
 
@@ -225,17 +231,19 @@ General Context Commands:
     listkmod              list loaded kernel modules
     listkmods
 
-    eprocess:             shows full EPROCESS for process with pid $1    
-    walk_eprocess:        iterates over eprocess
+General List Commands:
+    walk_eprocess:        iterates over kernel eprocess entry list
+
+Legacy Commands:
     rust:                 runs the rust subroutine
     kmod_to_file:         dump kernel module with the name $1 to disk
 
     memread:              read $2 bytes of physical memory from $1
     mem2file              read $2 bytes of physical memory from $1 to $3
-    list_process_modules: list all modules of process named $1
-    heaps:                list all heaps of process named $1
+
     pinspect:             inspect process named $1
 
+Other Commands:
     quit | exit:          exit the program
     usage:                print this message\n"#
     );
@@ -364,6 +372,24 @@ fn dispatch_commands(
             }
             None => println!("usage: threads (after entering a process context"),
         },
+        "heaps" => match context {
+            Some(info) => {
+                // physProcess is the physical address of EPROCESS
+                for heap in vm
+                    .get_heaps_with_dirbase(
+                        info.eprocess.Pcb.DirectoryTableBase,
+                        info.eprocessPhysAddr,
+                    )
+                    .iter()
+                {
+                    println!(
+                        "{}",
+                        heap.as_table(Some(format!("Heap Entry {}", heap.iRegionIndex)))
+                    );
+                }
+            }
+            None => println!("usage: heaps (after entering a process context"),
+        },
         "modules" => match context {
             Some(info) => {
                 let peb =
@@ -388,7 +414,10 @@ fn dispatch_commands(
                         Some(n) => n,
                         None => "unknown".to_string(),
                     };
-                    println!("  LOADED MODULE {}: {}", idx, name);
+                    println!(
+                        "  LOADED MODULE {} [baseAddr=0x{:x}, len=0x{:x}]: {}",
+                        idx, m.BaseAddress, m.SizeOfImage, name
+                    );
                     module = m.getNextInLoadOrderModuleListWithDirbase(
                         &vm,
                         Some(info.eprocess.Pcb.DirectoryTableBase),
@@ -420,30 +449,6 @@ fn dispatch_commands(
                         "Found EPROCESS at VA 0x{:x}\n{:#?}",
                         info.eprocessVirtAddr, info.eprocess
                     );
-                    // let threads = vm.threads_from_eprocess(&info);
-                    // println!("Found {} linked ETHREADs", threads.len());
-                    // for thread in threads.iter() {
-                    //     let moniker = if thread.ThreadName != 0 {
-                    //         vm.read_cstring_from_physical_mem(
-                    //             vm.translate(
-                    //                 vm.native_ctx.initialProcess.dirBase,
-                    //                 thread.ThreadName,
-                    //             ),
-                    //             Some(32),
-                    //         )
-                    //     } else {
-                    //         format!("0x{:x}", thread.CidUniqueThread)
-                    //     };
-                    //     println!(
-                    //         "  Found Thread '{}' with TEB PVA @ 0x{:x}",
-                    //         moniker, thread.Tcb.Teb
-                    //     );
-                    //
-                    //     let teb: TEB = vm.read_physical(
-                    //         vm.translate(info.eprocess.Pcb.DirectoryTableBase, thread.Tcb.Teb),
-                    //     );
-                    //     println!("  TEB: {:#?}", teb);
-                    // }
                 }
             };
         }
@@ -453,6 +458,33 @@ fn dispatch_commands(
                 vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr)
             ),
             None => println!("usage: peb (after entering a process context"),
+        },
+        "tebs" => match context {
+            Some(info) => {
+                let threads = vm.threads_from_eprocess(&info);
+                println!("Found {} linked ETHREADs", threads.len());
+                for thread in threads.iter() {
+                    let moniker = if thread.ThreadName != 0 {
+                        vm.read_cstring_from_physical_mem(
+                            vm.translate(vm.native_ctx.initialProcess.dirBase, thread.ThreadName),
+                            Some(32),
+                        )
+                    } else {
+                        format!("0x{:x}", thread.CidUniqueThread)
+                    };
+                    let teb: TEB = vm.read_physical(
+                        vm.translate(info.eprocess.Pcb.DirectoryTableBase, thread.Tcb.Teb),
+                    );
+                    println!(
+                        "  Found Thread '{}' ({} + {}) with TEB PVA @ 0x{:x}",
+                        moniker,
+                        teb.ClientId.UniqueProcess,
+                        teb.ClientId.UniqueThread,
+                        thread.Tcb.Teb
+                    );
+                }
+            }
+            None => println!("usage: threads (after entering a process context)"),
         },
 
         "mem2file" => {
@@ -521,16 +553,6 @@ fn dispatch_commands(
                 match vm.as_mut().find_process(&parts[1], false, true, true) {
                     None => println!("Unable to find a process with matching name"),
                     Some(mut proc) => vm.list_process_modules(&mut proc, true),
-                }
-            }
-        }
-        "heaps" => {
-            if parts.len() != 2 {
-                println!("Usage: heaps explorer.exe")
-            } else {
-                match vm.as_mut().find_process(&parts[1], false, true, true) {
-                    None => println!("Unable to find a process with matching name"),
-                    Some(proc) => vm.get_process_heaps(&proc),
                 }
             }
         }

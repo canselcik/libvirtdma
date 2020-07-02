@@ -202,6 +202,13 @@ fn rust_routine(vm: &mut VMSession) {
     }
 }
 
+fn inspect(vm: &VMSession, info: &mut ProcKernelInfo) {
+    println!(
+        "Inspecting process with PID {}...",
+        info.eprocess.UniqueProcessId
+    );
+}
+
 fn show_usage() {
     println!(
         r#"
@@ -214,6 +221,7 @@ Process Context Commands:
     loader
     modules
     heaps
+    inspect
 
 General Context Commands:
     openpid               enter process context for PID $1
@@ -240,7 +248,7 @@ Legacy Commands:
 
     memread:              read $2 bytes of physical memory from $1
     mem2file              read $2 bytes of physical memory from $1 to $3
-
+    list_process_modules
     pinspect:             inspect process named $1
 
 Other Commands:
@@ -271,6 +279,18 @@ fn dispatch_commands(
                         proc.eprocess.UniqueProcessId
                     );
                     Some(DispatchCommandReturnAction::ExitContext)
+                }
+            }
+        }
+        "inspect" => {
+            return match context {
+                None => {
+                    println!("'inspect' command requires being in a process context");
+                    None
+                }
+                Some(proc) => {
+                    inspect(&vm, proc);
+                    None
                 }
             }
         }
@@ -382,10 +402,7 @@ fn dispatch_commands(
                     )
                     .iter()
                 {
-                    println!(
-                        "{}",
-                        heap.as_table(Some(format!("Heap Entry {}", heap.iRegionIndex)))
-                    );
+                    println!("Heap Entry: {:#?}", heap);
                 }
             }
             None => println!("usage: heaps (after entering a process context"),
@@ -396,16 +413,19 @@ fn dispatch_commands(
                     vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
                 let loader =
                     peb.read_loader_using_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
-                let mut idx = 0;
+                let first_link = loader.InLoadOrderModuleList.Flink;
                 let mut module = loader.getFirstInLoadOrderModuleListWithDirbase(
                     &vm,
                     info.eprocess.Pcb.DirectoryTableBase,
                 );
                 loop {
-                    if module.is_none() || idx >= loader.Length {
+                    if module.is_none() {
                         break;
                     }
                     let m = module.unwrap();
+                    if m.InLoadOrderModuleList.Flink == first_link {
+                        break;
+                    }
                     let name = match m.BaseDllName.resolve_with_dirbase(
                         &vm,
                         info.eprocess.Pcb.DirectoryTableBase,
@@ -414,15 +434,20 @@ fn dispatch_commands(
                         Some(n) => n,
                         None => "unknown".to_string(),
                     };
+                    let typ = if m.BaseAddress == peb.ImageBaseAddress {
+                        "BASE"
+                    } else {
+                        "LOADED"
+                    };
                     println!(
-                        "  LOADED MODULE {} [baseAddr=0x{:x}, len=0x{:x}]: {}",
-                        idx, m.BaseAddress, m.SizeOfImage, name
+                        "  {} MODULE {}: [baseAddr=0x{:x}, len=0x{:x}]",
+                        typ, name, m.BaseAddress, m.SizeOfImage,
                     );
+
                     module = m.getNextInLoadOrderModuleListWithDirbase(
                         &vm,
                         Some(info.eprocess.Pcb.DirectoryTableBase),
                     );
-                    idx += 1;
                 }
             }
             None => println!("usage: modules (after entering a process context"),

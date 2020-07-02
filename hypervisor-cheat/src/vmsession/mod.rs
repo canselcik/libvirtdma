@@ -2,7 +2,7 @@
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
 use crate::vmsession::win::eprocess::EPROCESS;
 use crate::vmsession::win::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
-use crate::vmsession::win::heap_entry::ProcessHeapEntry;
+use crate::vmsession::win::heap_entry::HEAP;
 use crate::vmsession::win::peb::FullPEB;
 use itertools::Itertools;
 use memmem::Searcher;
@@ -436,13 +436,19 @@ impl VMSession {
         self.get_full_peb(proc.proc.dirBase, proc.proc.physProcess)
     }
 
-    pub fn get_heaps_with_dirbase(&self, dirbase: u64, physProcess: u64) -> Vec<ProcessHeapEntry> {
+    pub fn get_heaps_with_dirbase(&self, dirbase: u64, physProcess: u64) -> Vec<HEAP> {
         let peb = self.get_full_peb(dirbase, physProcess);
-        let mut res: Vec<ProcessHeapEntry> = Vec::new();
+        let primary_heap = peb.ProcessHeap;
+        println!("PEB->ProcessHeap = 0x{:x}", primary_heap);
+        println!("PEB->ProcessHeaps = 0x{:x}", peb.ProcessHeaps);
+        let mut res: Vec<HEAP> = Vec::new();
+        let heaps_array_begin: u64 = peb.ProcessHeaps;
         for heap_index in 0..peb.NumberOfHeaps {
-            let offset = heap_index as usize * size_of::<ProcessHeapEntry>();
-            let heap: ProcessHeapEntry =
-                self.read_with_dirbase(dirbase, peb.ProcessHeaps + offset as u64);
+            let offset = heap_index as usize * size_of::<u64>();
+            let heapptr = heaps_array_begin + offset as u64;
+            println!("&PEB->ProcessHeaps[{}] = 0x{:x}", heap_index, heapptr);
+            let heap: HEAP = self.read_with_dirbase(dirbase, heapptr);
+            // println!("PEB->ProcessHeaps[{}] = ", heap_index, heapptr);
             res.push(heap);
         }
         return res;

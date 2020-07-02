@@ -49,6 +49,7 @@ makeByteRange!(Bytes88, 0x58);
 makeByteRange!(Bytes96, 0x60);
 makeByteRange!(Bytes1256, 1256);
 makeByteRange!(Bytes496, 496);
+makeByteRange!(Bytes336, 0x150);
 
 makeTypeRange!(DoubleBytes261, u16, 261);
 makeTypeRange!(VoidPointers64, u64, 64);

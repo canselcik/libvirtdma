@@ -233,6 +233,9 @@ implNopFmtDebug!(IdealProcessorFlags);
 implNopFmtDebug!(SameTebFlags);
 implNopFmtDebug!(FiberDataOrVersion);
 
+use crate::vmsession::win::heap_entry::HEAP_ENTRY;
+implNopFmtDebug!(HEAP_ENTRY);
+
 #[derive(Copy, Clone)]
 #[repr(C)]
 pub union IdealProcessor {

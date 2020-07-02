@@ -29,6 +29,7 @@ pub mod heap_entry;
 pub mod list_entry;
 pub mod peb;
 pub mod peb_bitfield;
+pub mod proc_heap_entry;
 pub mod teb;
 
 // For Windows 10 | 2016 1809 Redstone 5 (October Update) x64
@@ -39,3 +40,9 @@ sa::const_assert!(std::mem::size_of::<teb::GUID>() == 0x10);
 
 // 0x1838 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
 sa::const_assert!(std::mem::size_of::<teb::TEB>() == 0x1838);
+
+// 0x10 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
+sa::const_assert!(std::mem::size_of::<heap_entry::HEAP_ENTRY>() == 0x10);
+
+// 0x2c0 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
+sa::const_assert!(std::mem::size_of::<heap_entry::HEAP>() == 0x2c0);

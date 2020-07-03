@@ -22,7 +22,9 @@ static size_t vtCacheTimeMS = VT_CACHE_TIME_MS;
 #define VT_CACHE_TIME_NS vtCacheTimeMS * 1000000ll
 
 /*
-  This is used to cache the pages touched last bu reads of VTranslate, this increases the performance of external mode by at least 2x for multiple consequitive reads in common area. Cached page expires after a set interval which should be small enough not to cause very serious harm
+  This is used to cache the pages touched last bu reads of VTranslate, this increases the performance of external
+  mode by at least 2x for multiple consequitive reads in common area. Cached page expires after a set interval
+  which should be small enough not to cause very serious harm
 */
 
 // This makes the cache fit in 12 pages

@@ -21,7 +21,7 @@ use term_table::row::Row;
 use term_table::table_cell::{Alignment, TableCell};
 use term_table::{Table, TableStyle};
 use vmread::{WinContext, WinDll, WinProcess};
-use vmread_sys::{ProcessData, WinCtx, WinModule, PEB};
+use vmread_sys::{ProcessData, WinCtx, WinExport, WinModule, PEB};
 
 pub mod proc_kernelinfo;
 pub mod ptrforeign;
@@ -88,6 +88,29 @@ impl VMSession {
                 }
                 Err((eval, estr)) => Err(format!("Initialization error {}: {}", eval, estr)),
             }
+        }
+    }
+
+    pub fn list_kernel_exports(&mut self) {
+        let mut index: isize = 0;
+        let winExportSize = std::mem::size_of::<WinExport>() as isize;
+        loop {
+            let item_ptr = unsafe { self.native_ctx.ntExports.list.offset(index * winExportSize) };
+            if item_ptr.is_null() {
+                break;
+            }
+            let nameptr = unsafe { (*item_ptr).name };
+            if nameptr.is_null() {
+                break;
+            }
+            let (name, addr) =
+                unsafe { (std::ffi::CString::from_raw(nameptr), (*item_ptr).address) };
+            let sname = match name.to_str() {
+                Ok(s) => s,
+                Err(_) => "Utf8DecodeErrorOccurred",
+            };
+            println!("KernelExport @ 0x{:x}\t{}", addr, sname);
+            index += 1;
         }
     }
 

@@ -239,6 +239,10 @@ General Context Commands:
     listkmod              list loaded kernel modules
     listkmods
 
+    winexports            lists kernel exports and their addresses
+    kernelexports
+    kexports
+
 General List Commands:
     walk_eprocess:        iterates over kernel eprocess entry list
 
@@ -263,6 +267,7 @@ fn dispatch_commands(
     context: &mut Option<ProcKernelInfo>,
 ) -> Option<DispatchCommandReturnAction> {
     match parts[0].as_ref() {
+        "winexports" | "kernelexports" | "kexports" => vm.as_mut().list_kernel_exports(),
         "listkmod" | "listkmods" => vm.as_mut().list_kmods(true),
         "listproc" | "listprocs" | "listprocess" | "listprocesses" => {
             vm.as_mut().list_process(true, true)

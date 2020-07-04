@@ -2,7 +2,12 @@ use byteorder::ByteOrder;
 use itertools::Itertools;
 use nix::fcntl::open;
 use nix::unistd::close;
-use pelite::image::IMAGE_DOS_SIGNATURE;
+use pelite::image::{
+    IMAGE_DIRECTORY_ENTRY_EXPORT, IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_EXPORT_DIRECTORY,
+    IMAGE_NT_HEADERS_SIGNATURE, IMAGE_NT_OPTIONAL_HDR32_MAGIC, IMAGE_NT_OPTIONAL_HDR64_MAGIC,
+};
+use pelite::pe32::image::IMAGE_NT_HEADERS32;
+use pelite::pe64::image::IMAGE_NT_HEADERS;
 use proc_maps::{MapRange, Pid};
 use regex::bytes::Regex;
 use std::io::Read;
@@ -20,6 +25,11 @@ const PMASK: u64 = (!0xfu64 << 8) & 0xfffffffffu64;
 const VMREAD_IOCTL_MAGIC: u8 = 0x42;
 
 ioctl_readwrite!(vmread_bind, VMREAD_IOCTL_MAGIC, 0, ProcessData);
+
+pub enum NtHeaders {
+    Bit64(pelite::pe64::image::IMAGE_NT_HEADERS),
+    Bit32(pelite::pe32::image::IMAGE_NT_HEADERS),
+}
 
 fn empty_winctx_with_process_data(proc_data: ProcessData) -> WinCtx {
     WinCtx {
@@ -183,6 +193,108 @@ impl VMBinding {
 
     pub fn free_export_list(&self) {
         unsafe { vmread_sys::FreeExportList(self.ctx.ntExports) };
+    }
+
+    pub fn genexports(&self, dirbase: u64, moduleBase: u64) -> Option<()> {
+        let ntHeaders = match self.get_nt_header(dirbase, moduleBase) {
+            Some(h) => h,
+            _ => return None,
+        };
+
+        let dataDir = match ntHeaders {
+            NtHeaders::Bit64(h64) => h64.OptionalHeader.DataDirectory,
+            NtHeaders::Bit32(h32) => h32.OptionalHeader.DataDirectory,
+        };
+
+        let exportTable = dataDir[IMAGE_DIRECTORY_ENTRY_EXPORT];
+        if exportTable.Size > 0x7fffffu32 {
+            return None;
+        }
+        if exportTable.VirtualAddress as u64 == moduleBase {
+            return None;
+        }
+        if exportTable.Size < std::mem::size_of::<IMAGE_EXPORT_DIRECTORY>() as u32 {
+            return None;
+        }
+
+        // TODO THIS THING
+
+        return None;
+
+        /*
+               char* buf = (char*)malloc(exportTable->Size + 1);
+
+               IMAGE_EXPORT_DIRECTORY* exportDir = (IMAGE_EXPORT_DIRECTORY*)(void*)buf;
+               if (VMemRead(&ctx->process, process->dirBase, (uint64_t)buf, moduleBase + exportTable->VirtualAddress, exportTable->Size) == -1) {
+                   free(buf);
+                   return 2;
+               }
+               buf[exportTable->Size] = 0;
+               if (!exportDir->NumberOfNames || !exportDir->AddressOfNames) {
+                   free(buf);
+                   return 3;
+               }
+
+               uint32_t exportOffset = exportTable->VirtualAddress;
+
+               uint32_t* names = (uint32_t*)(void*)(buf + exportDir->AddressOfNames - exportOffset);
+               if (exportDir->AddressOfNames - exportOffset + exportDir->NumberOfNames * sizeof(uint32_t) > exportTable->Size) {
+                   free(buf);
+                   return 4;
+               }
+               uint16_t* ordinals = (uint16_t*)(void*)(buf + exportDir->AddressOfNameOrdinals - exportOffset);
+               if (exportDir->AddressOfNameOrdinals - exportOffset + exportDir->NumberOfNames * sizeof(uint16_t) > exportTable->Size) {
+                   free(buf);
+                   return 5;
+               }
+               uint32_t* functions = (uint32_t*)(void*)(buf + exportDir->AddressOfFunctions - exportOffset);
+               if (exportDir->AddressOfFunctions - exportOffset + exportDir->NumberOfFunctions * sizeof(uint32_t) > exportTable->Size) {
+                   free(buf);
+                   return 6;
+               }
+
+               outList->size = exportDir->NumberOfNames;
+               outList->list = (WinExport*)malloc(sizeof(WinExport) * outList->size);
+
+               size_t sz = 0;
+
+               for (uint32_t i = 0; i < exportDir->NumberOfNames; i++) {
+                   if (names[i] > exportTable->Size + exportOffset || names[i] < exportOffset || ordinals[i] > exportDir->NumberOfNames)
+                       continue;
+                   outList->list[sz].name = strdup(buf + names[i] - exportOffset);
+                   outList->list[sz].address = moduleBase + functions[ordinals[i]];
+                   sz++;
+               }
+
+               outList->size = sz;
+               free(buf);
+               return 0;
+           }
+
+
+
+        */
+    }
+
+    pub fn get_nt_header(&self, dirbase: u64, address: u64) -> Option<NtHeaders> {
+        let dosHeader: IMAGE_DOS_HEADER = self.vread(dirbase, address);
+        if dosHeader.e_magic != IMAGE_DOS_SIGNATURE {
+            return None;
+        }
+
+        let ntHeaderAddr = address + dosHeader.e_lfanew as u64;
+        let ntHeader: IMAGE_NT_HEADERS = self.vread(dirbase, ntHeaderAddr);
+        if ntHeader.Signature != IMAGE_NT_HEADERS_SIGNATURE {
+            return None;
+        }
+        match ntHeader.OptionalHeader.Magic {
+            IMAGE_NT_OPTIONAL_HDR64_MAGIC => Some(NtHeaders::Bit64(ntHeader)),
+            IMAGE_NT_OPTIONAL_HDR32_MAGIC => Some(NtHeaders::Bit32({
+                let nth: IMAGE_NT_HEADERS32 = self.vread(dirbase, ntHeaderAddr);
+                nth
+            })),
+            _ => None,
+        }
     }
 
     fn find_nt_kernel(&mut self, kernelEntry: u64) -> Option<u64> {

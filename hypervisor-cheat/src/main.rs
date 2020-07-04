@@ -616,8 +616,9 @@ enum DispatchCommandReturnAction {
 }
 
 fn main() {
-    let _bind = vmsession::nativebinding::VMBinding::new();
-    return;
+    // let bind = vmsession::nativebinding::VMBinding::new();
+    // bind.unwrap().free_export_list();
+    // return;
     let vm = vmsession::VMSession::new().expect("Failed to initialize");
     let histfile = format!(
         "{}/.vmread_hist",

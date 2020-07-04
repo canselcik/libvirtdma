@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
 use crate::vmsession::win::eprocess::EPROCESS;
 use crate::vmsession::win::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
@@ -6,6 +7,7 @@ use crate::vmsession::win::heap_entry::HEAP;
 use crate::vmsession::win::peb::FullPEB;
 use itertools::Itertools;
 use memmem::Searcher;
+
 use pelite::image::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS64, IMAGE_NT_HEADERS_SIGNATURE,
     IMAGE_NT_OPTIONAL_HDR64_MAGIC,
@@ -27,6 +29,8 @@ pub mod proc_kernelinfo;
 pub mod ptrforeign;
 pub mod win;
 
+pub mod nativebinding;
+
 pub struct VMSession {
     self_ref: RwLock<Option<Arc<Self>>>,
     pub ctx: WinContext,
@@ -36,9 +40,6 @@ pub struct VMSession {
 fn str_chunks<'a>(s: &'a str, n: usize) -> Box<dyn Iterator<Item = &'a str> + 'a> {
     Box::new(s.as_bytes().chunks(n).map(|c| str::from_utf8(c).unwrap()))
 }
-
-const PAGE_OFFSET_SIZE: u64 = 12;
-const PMASK: u64 = (!0xfu64 << 8) & 0xfffffffffu64;
 
 impl VMSession {
     unsafe fn escape_hatch(&self) -> &mut Self {
@@ -279,55 +280,13 @@ impl VMSession {
     }
 
     pub fn translate(&self, dirbase: u64, addr: u64) -> u64 {
-        let res = unsafe {
+        unsafe {
             vmread_sys::VTranslate(
                 &self.native_ctx.process as *const ProcessData,
                 dirbase,
                 addr,
             )
-        };
-        assert_eq!(self.native_translate(dirbase, addr), res);
-        res
-    }
-
-    pub fn native_translate(&self, dirbase: u64, address: u64) -> u64 {
-        let dirBase = dirbase & !0xfu64;
-        let pageOffset = address & !(!0u64 << PAGE_OFFSET_SIZE);
-        let pte = (address >> 12) & 0x1ffu64;
-        let pt = (address >> 21) & 0x1ffu64;
-        let pd = (address >> 30) & 0x1ffu64;
-        let pdp = (address >> 39) & 0x1ffu64;
-
-        let pdpe: u64 = self.read_physical(dirBase + 8 * pdp);
-        if !pdpe & 1u64 != 0 {
-            return 0;
         }
-
-        let pde: u64 = self.read_physical((pdpe & PMASK) + 8 * pd);
-        if !pde & 1u64 != 0 {
-            return 0;
-        }
-
-        // 1GB large page, use pde's 12-34 bits
-        if pde & 0x80u64 != 0 {
-            return (pde & (!0u64 << 42 >> 12)) + (address & !(!0u64 << 30));
-        }
-
-        let pteAddr: u64 = self.read_physical((pde & PMASK) + 8 * pt);
-        if !pteAddr & 1u64 != 0 {
-            return 0;
-        }
-
-        // 2MB large page
-        if pteAddr & 0x80u64 != 0 {
-            return (pteAddr & PMASK) + (address & !(!0u64 << 21));
-        }
-
-        let resolved_addr: u64 = self.read_physical::<u64>((pteAddr & PMASK) + 8 * pte) & PMASK;
-        if resolved_addr == 0 {
-            return 0;
-        }
-        return resolved_addr + pageOffset;
     }
 
     pub fn read_cstring_from_physical_mem(&self, addr: u64, maxlen: Option<u64>) -> String {

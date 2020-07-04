@@ -3,6 +3,9 @@
 #[macro_use]
 extern crate c2rust_bitfields;
 
+#[macro_use]
+extern crate nix;
+
 use crate::rust_external::*;
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
 use crate::vmsession::win::teb::TEB;
@@ -202,7 +205,7 @@ fn rust_routine(vm: &mut VMSession) {
     }
 }
 
-fn inspect(vm: &VMSession, info: &mut ProcKernelInfo) {
+fn inspect(_vm: &VMSession, info: &mut ProcKernelInfo) {
     println!(
         "Inspecting process with PID {}...",
         info.eprocess.UniqueProcessId
@@ -613,6 +616,8 @@ enum DispatchCommandReturnAction {
 }
 
 fn main() {
+    let _bind = vmsession::nativebinding::VMBinding::new();
+    return;
     let vm = vmsession::VMSession::new().expect("Failed to initialize");
     let histfile = format!(
         "{}/.vmread_hist",

@@ -619,6 +619,12 @@ fn main() {
     // let bind = vmsession::nativebinding::VMBinding::new();
     // bind.unwrap().free_export_list();
     // return;
+    ctrlc::set_handler(move || {
+        println!("Exiting gracfully...");
+        std::process::exit(0);
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let vm = vmsession::VMSession::new().expect("Failed to initialize");
     let histfile = format!(
         "{}/.vmread_hist",

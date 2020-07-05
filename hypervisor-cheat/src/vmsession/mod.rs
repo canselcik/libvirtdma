@@ -8,6 +8,7 @@ use crate::vmsession::win::peb::FullPEB;
 use itertools::Itertools;
 use memmem::Searcher;
 
+use crate::vmsession::vm::binding_search::str_chunks;
 use pelite::image::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS64, IMAGE_NT_HEADERS_SIGNATURE,
     IMAGE_NT_OPTIONAL_HDR64_MAGIC,
@@ -29,16 +30,12 @@ pub mod proc_kernelinfo;
 pub mod ptrforeign;
 pub mod win;
 
-pub mod nativebinding;
+pub mod vm;
 
 pub struct VMSession {
     self_ref: RwLock<Option<Arc<Self>>>,
     pub ctx: WinContext,
     pub native_ctx: WinCtx,
-}
-
-fn str_chunks<'a>(s: &'a str, n: usize) -> Box<dyn Iterator<Item = &'a str> + 'a> {
-    Box::new(s.as_bytes().chunks(n).map(|c| str::from_utf8(c).unwrap()))
 }
 
 impl VMSession {

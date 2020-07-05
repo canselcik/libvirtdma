@@ -74,6 +74,16 @@ impl VMSession {
         }
     }
 
+    pub fn from_initialized(ctx: WinContext, native_ctx: WinCtx) -> Arc<VMSession> {
+        let session = Arc::new(VMSession {
+            self_ref: RwLock::new(None),
+            ctx,
+            native_ctx,
+        });
+        *session.clone().self_ref.write().unwrap() = Some(session.clone());
+        return session;
+    }
+
     pub fn new() -> Result<Arc<VMSession>, String> {
         let ctx_ret = vmread::create_context(0);
         if ctx_ret.is_err() {

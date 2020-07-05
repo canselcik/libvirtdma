@@ -9,7 +9,7 @@ use crate::win_process::*;
 ///
 /// There is no `new` implementation, use `create_context` to retrieve an initialized context.
 pub struct WinContext {
-    ctx: sys::WinCtx,
+    pub ctx: sys::WinCtx,
     pub process_list: Vec<WinProcess>,
     pub kmod_list: Vec<WinDll>,
 }

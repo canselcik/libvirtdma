@@ -1,22 +1,32 @@
+use crate::vmsession::win::heap_entry::HEAP;
+use crate::vmsession::win::peb::FullPEB;
+use crate::vmsession::win::Offsets;
 use byteorder::ByteOrder;
 use itertools::Itertools;
+use memmem::Searcher;
 use nix::fcntl::open;
 use nix::unistd::close;
 use pelite::image::{
-    IMAGE_DIRECTORY_ENTRY_EXPORT, IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_EXPORT_DIRECTORY,
+    IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_EXPORT_DIRECTORY, IMAGE_FILE_HEADER,
     IMAGE_NT_HEADERS_SIGNATURE, IMAGE_NT_OPTIONAL_HDR32_MAGIC, IMAGE_NT_OPTIONAL_HDR64_MAGIC,
 };
 use pelite::pe32::image::IMAGE_NT_HEADERS32;
-use pelite::pe64::image::IMAGE_NT_HEADERS;
+use pelite::pe64::image::{IMAGE_NT_HEADERS, IMAGE_OPTIONAL_HEADER};
 use proc_maps::{MapRange, Pid};
 use regex::bytes::Regex;
+use std::collections::HashMap;
 use std::io::Read;
+use std::iter::FromIterator;
+use std::mem::size_of;
 use std::process::Stdio;
-use vmread_sys::{ProcessData, WinCtx, WinExportList, WinOffsets, WinProc};
+use vmread::WinExport;
+use vmread_sys::{ProcessData, WinCtx, WinExportList, WinOffsets, WinProc, IMAGE_DATA_DIRECTORY};
 
 pub struct VMBinding {
     kernelEntry: u64,
+    cachedKernelExports: HashMap<String, WinExport>,
     ctx: WinCtx,
+    offsets: Option<Offsets>,
 }
 
 const PAGE_OFFSET_SIZE: u64 = 12;
@@ -63,9 +73,32 @@ fn empty_winctx_with_process_data(proc_data: ProcessData) -> WinCtx {
     }
 }
 
+fn str_chunks<'a>(s: &'a str, n: usize) -> Box<dyn Iterator<Item = &'a str> + 'a> {
+    Box::new(
+        s.as_bytes()
+            .chunks(n)
+            .map(|c| std::str::from_utf8(c).unwrap()),
+    )
+}
+
 impl VMBinding {
+    pub fn list_kernel_procs(&self) {
+        for (sname, rec) in self.cachedKernelExports.iter() {
+            println!("KernelExport @ 0x{:x}\t{}", rec.address, sname);
+        }
+    }
+
+    pub fn find_kernel_proc(&self, name: &str) -> Option<u64> {
+        match self.cachedKernelExports.get(name) {
+            None => None,
+            Some(export) => Some(export.address),
+        }
+    }
+
     pub fn new() -> Option<VMBinding> {
         let mut binding = VMBinding {
+            offsets: None,
+            cachedKernelExports: HashMap::new(),
             kernelEntry: 0,
             ctx: empty_winctx_with_process_data(match Self::create_process_data() {
                 None => return None,
@@ -79,8 +112,15 @@ impl VMBinding {
             Some((pml4, kernel_entry)) => {
                 binding.ctx.initialProcess.dirBase = pml4;
                 binding.kernelEntry = kernel_entry;
-                binding.ctx.ntKernel = match binding.find_nt_kernel(kernel_entry) {
-                    Some(ntk) => ntk,
+                match binding.find_nt_kernel(kernel_entry) {
+                    Some((ntk, kexports)) => {
+                        println!("NTKernel ModuleBase @ 0x{:x}", ntk);
+                        println!("Found {} kernel exports", kexports.len());
+                        // Less than ideal but we do it once. Better than having optionals or mutexes everywhere
+                        for (k, v) in kexports.iter() {
+                            binding.cachedKernelExports.insert(k.clone(), v.clone());
+                        }
+                    }
                     None => {
                         /* Test in case we are running XP (QEMU AddressSpace is different) */
                         // #if (LMODE() != MODE_DMA())
@@ -95,18 +135,10 @@ impl VMBinding {
             None => return None,
         };
 
-        let initProcAddr = unsafe {
-            vmread_sys::FindProcAddress(
-                binding.ctx.ntExports,
-                std::ffi::CString::new("PsInitialSystemProcess")
-                    .unwrap()
-                    .as_ptr(),
-            )
+        let initProcAddr = match binding.find_kernel_proc("PsInitialSystemProcess") {
+            Some(0) | None => return None,
+            Some(addr) => addr,
         };
-        if initProcAddr == 0 {
-            return None;
-        }
-
         binding.ctx.initialProcess.process =
             binding.vread(binding.ctx.initialProcess.dirBase, initProcAddr);
         binding.ctx.initialProcess.physProcess = binding.native_translate(
@@ -116,27 +148,19 @@ impl VMBinding {
 
         binding.ctx.ntVersion = binding.get_nt_version();
         binding.ctx.ntBuild = binding.get_nt_build();
-
-        println!(
-            "NT VERSION: {} NT BUILD: {}",
-            binding.ctx.ntVersion, binding.ctx.ntBuild
-        );
-        // if (SetupOffsets(ctx))
-        //   return 9;
+        binding.offsets = Offsets::GetOffsets(binding.ctx.ntVersion, binding.ctx.ntBuild);
+        if binding.offsets.is_none() {
+            return None;
+        };
 
         Some(binding)
     }
 
     fn get_nt_version(&self) -> u16 {
-        let getVersion = unsafe {
-            vmread_sys::FindProcAddress(
-                self.ctx.ntExports,
-                std::ffi::CString::new("RtlGetVersion").unwrap().as_ptr(),
-            )
+        let getVersion = match self.find_kernel_proc("RtlGetVersion") {
+            Some(0) | None => return 0,
+            Some(addr) => addr,
         };
-        if getVersion == 0 {
-            return 0;
-        }
 
         let buf: [u8; 0x100] = self.vread(self.ctx.initialProcess.dirBase, getVersion);
         let mut major: u8 = 0;
@@ -165,15 +189,10 @@ impl VMBinding {
     }
 
     fn get_nt_build(&self) -> u32 {
-        let getVersion = unsafe {
-            vmread_sys::FindProcAddress(
-                self.ctx.ntExports,
-                std::ffi::CString::new("RtlGetVersion").unwrap().as_ptr(),
-            )
+        let getVersion = match self.find_kernel_proc("RtlGetVersion") {
+            Some(0) | None => return 0,
+            Some(addr) => addr,
         };
-        if getVersion == 0 {
-            return 0;
-        }
         let buf: [u8; 0x100] = self.vread(self.ctx.initialProcess.dirBase, getVersion);
 
         /* Find writes to rcx +12 -- that's where the version number is stored. These instructions are not on XP, but that is simply irrelevant. */
@@ -191,92 +210,7 @@ impl VMBinding {
         self.read_physical(self.native_translate(dirbase, address))
     }
 
-    pub fn free_export_list(&self) {
-        unsafe { vmread_sys::FreeExportList(self.ctx.ntExports) };
-    }
-
-    pub fn genexports(&self, dirbase: u64, moduleBase: u64) -> Option<()> {
-        let ntHeaders = match self.get_nt_header(dirbase, moduleBase) {
-            Some(h) => h,
-            _ => return None,
-        };
-
-        let dataDir = match ntHeaders {
-            NtHeaders::Bit64(h64) => h64.OptionalHeader.DataDirectory,
-            NtHeaders::Bit32(h32) => h32.OptionalHeader.DataDirectory,
-        };
-
-        let exportTable = dataDir[IMAGE_DIRECTORY_ENTRY_EXPORT];
-        if exportTable.Size > 0x7fffffu32 {
-            return None;
-        }
-        if exportTable.VirtualAddress as u64 == moduleBase {
-            return None;
-        }
-        if exportTable.Size < std::mem::size_of::<IMAGE_EXPORT_DIRECTORY>() as u32 {
-            return None;
-        }
-
-        // TODO THIS THING
-
-        return None;
-
-        /*
-               char* buf = (char*)malloc(exportTable->Size + 1);
-
-               IMAGE_EXPORT_DIRECTORY* exportDir = (IMAGE_EXPORT_DIRECTORY*)(void*)buf;
-               if (VMemRead(&ctx->process, process->dirBase, (uint64_t)buf, moduleBase + exportTable->VirtualAddress, exportTable->Size) == -1) {
-                   free(buf);
-                   return 2;
-               }
-               buf[exportTable->Size] = 0;
-               if (!exportDir->NumberOfNames || !exportDir->AddressOfNames) {
-                   free(buf);
-                   return 3;
-               }
-
-               uint32_t exportOffset = exportTable->VirtualAddress;
-
-               uint32_t* names = (uint32_t*)(void*)(buf + exportDir->AddressOfNames - exportOffset);
-               if (exportDir->AddressOfNames - exportOffset + exportDir->NumberOfNames * sizeof(uint32_t) > exportTable->Size) {
-                   free(buf);
-                   return 4;
-               }
-               uint16_t* ordinals = (uint16_t*)(void*)(buf + exportDir->AddressOfNameOrdinals - exportOffset);
-               if (exportDir->AddressOfNameOrdinals - exportOffset + exportDir->NumberOfNames * sizeof(uint16_t) > exportTable->Size) {
-                   free(buf);
-                   return 5;
-               }
-               uint32_t* functions = (uint32_t*)(void*)(buf + exportDir->AddressOfFunctions - exportOffset);
-               if (exportDir->AddressOfFunctions - exportOffset + exportDir->NumberOfFunctions * sizeof(uint32_t) > exportTable->Size) {
-                   free(buf);
-                   return 6;
-               }
-
-               outList->size = exportDir->NumberOfNames;
-               outList->list = (WinExport*)malloc(sizeof(WinExport) * outList->size);
-
-               size_t sz = 0;
-
-               for (uint32_t i = 0; i < exportDir->NumberOfNames; i++) {
-                   if (names[i] > exportTable->Size + exportOffset || names[i] < exportOffset || ordinals[i] > exportDir->NumberOfNames)
-                       continue;
-                   outList->list[sz].name = strdup(buf + names[i] - exportOffset);
-                   outList->list[sz].address = moduleBase + functions[ordinals[i]];
-                   sz++;
-               }
-
-               outList->size = sz;
-               free(buf);
-               return 0;
-           }
-
-
-
-        */
-    }
-
-    pub fn get_nt_header(&self, dirbase: u64, address: u64) -> Option<NtHeaders> {
+    pub fn get_nt_header(&self, dirbase: u64, address: u64) -> Option<(NtHeaders, u64)> {
         let dosHeader: IMAGE_DOS_HEADER = self.vread(dirbase, address);
         if dosHeader.e_magic != IMAGE_DOS_SIGNATURE {
             return None;
@@ -288,16 +222,112 @@ impl VMBinding {
             return None;
         }
         match ntHeader.OptionalHeader.Magic {
-            IMAGE_NT_OPTIONAL_HDR64_MAGIC => Some(NtHeaders::Bit64(ntHeader)),
-            IMAGE_NT_OPTIONAL_HDR32_MAGIC => Some(NtHeaders::Bit32({
-                let nth: IMAGE_NT_HEADERS32 = self.vread(dirbase, ntHeaderAddr);
-                nth
-            })),
+            IMAGE_NT_OPTIONAL_HDR64_MAGIC => Some((NtHeaders::Bit64(ntHeader), ntHeaderAddr)),
+            IMAGE_NT_OPTIONAL_HDR32_MAGIC => Some((
+                NtHeaders::Bit32({
+                    let nth: IMAGE_NT_HEADERS32 = self.vread(dirbase, ntHeaderAddr);
+                    nth
+                }),
+                ntHeaderAddr,
+            )),
             _ => None,
         }
     }
 
-    fn find_nt_kernel(&mut self, kernelEntry: u64) -> Option<u64> {
+    pub fn get_module_exports(
+        &self,
+        dirbase: u64,
+        moduleBase: u64,
+    ) -> Result<HashMap<String, WinExport>, String> {
+        let mut hmap = HashMap::new();
+
+        let ntHeadersAddr = match self.get_nt_header(dirbase, moduleBase) {
+            Some((_, addr)) => addr,
+            _ => return Err("couldn't get the NT header".to_string()),
+        };
+
+        let dataDirOffset =
+            size_of::<IMAGE_FILE_HEADER>() + size_of::<u32>() + size_of::<IMAGE_OPTIONAL_HEADER>()
+                - size_of::<[IMAGE_DATA_DIRECTORY; 0]>();
+        let exportTable: IMAGE_DATA_DIRECTORY =
+            self.vread(dirbase, ntHeadersAddr + dataDirOffset as u64);
+        if exportTable.Size > 0x7fffffu32 {
+            return Err(format!(
+                "table size of 0x{:x} is greater than 0x7fffff",
+                exportTable.Size
+            ));
+        }
+        if exportTable.VirtualAddress as u64 == moduleBase {
+            return Err(format!(
+                "VirtualAddress of exportTable equals the moduleBase 0x{:x}",
+                moduleBase
+            ));
+        }
+        if exportTable.Size < size_of::<IMAGE_EXPORT_DIRECTORY>() as u32 {
+            return Err(format!(
+                "ExportTable size ({:x}) is smaller than size of IMAGE_EXPORT_DIRECTORY",
+                exportTable.Size,
+            ));
+        }
+
+        let bufBegin = moduleBase + exportTable.VirtualAddress as u64;
+        let exportDir: IMAGE_EXPORT_DIRECTORY = self.vread(dirbase, bufBegin);
+        if exportDir.NumberOfNames == 0 || exportDir.AddressOfNames == 0 {
+            return Err(format!(
+                "IMAGE_EXPORT_DIRECTORY->NumberOfNames or AddressOfNames is 0"
+            ));
+        }
+
+        let namesPtr: u64 = moduleBase + exportDir.AddressOfNames as u64;
+        // if exportDir.AddressOfNames as usize - exportOffset
+        //     + exportDir.NumberOfNames as usize * size_of::<u32>()
+        //     > exportTable.Size as usize
+        // {
+        //     return Err(format!("Offset issues for names"));
+        // }
+
+        let ordinalsPtr: u64 = moduleBase + exportDir.AddressOfNameOrdinals as u64;
+        // if exportDir.AddressOfNameOrdinals as usize - exportOffset
+        //     + exportDir.NumberOfNames as usize * size_of::<u16>()
+        //     > exportTable.Size as usize
+        // {
+        //     return Err(format!("Offset issues for ordinals"));
+        // }
+
+        let fnPtr: u64 = moduleBase + exportDir.AddressOfFunctions as u64;
+        // if exportDir.AddressOfFunctions as usize - exportOffset
+        //     + exportDir.NumberOfFunctions as usize * size_of::<u32>()
+        //     > exportTable.Size as usize
+        // {
+        //     return Err(format!("Offset issues for functions"));
+        // }
+
+        for i in 0..exportDir.NumberOfNames as u64 {
+            let namePos = namesPtr + i * size_of::<u32>() as u64;
+            let ordinalPos = ordinalsPtr + i * size_of::<u16>() as u64;
+
+            let namePtr: u32 = self.vread(dirbase, namePos);
+            let name = self.read_cstring_from_physical_mem(
+                self.native_translate(dirbase, moduleBase + namePtr as u64),
+                Some(128),
+            );
+
+            let ordinal: u16 = self.vread(dirbase, ordinalPos);
+            let fnPos = fnPtr + ordinal as u64 * size_of::<u32>() as u64;
+            let func: u32 = self.vread(dirbase, fnPos);
+
+            hmap.insert(
+                name.clone(),
+                WinExport {
+                    name: name.clone(),
+                    address: func as u64 + moduleBase,
+                },
+            );
+        }
+        return Ok(hmap);
+    }
+
+    fn find_nt_kernel(&mut self, kernelEntry: u64) -> Option<(u64, HashMap<String, WinExport>)> {
         let mut mask = 0xfffffu64;
         while mask >= 0xfff {
             let mut i = (kernelEntry & !0x1fffff) + 0x20000000;
@@ -332,19 +362,21 @@ impl VMBinding {
                                     == 0x45444f434c4f4f50;
                             if kdbg && poolCode {
                                 let ntKernel = i + 0x10000 * o + p;
-                                let export_list_result = unsafe {
-                                    vmread_sys::GenerateExportList(
-                                        &self.ctx as *const WinCtx,
-                                        &self.ctx.initialProcess,
-                                        ntKernel,
-                                        &mut self.ctx.ntExports as *mut WinExportList,
-                                    )
-                                };
-                                if export_list_result != 0 {
-                                    // Maybe memleak here but normally doesn't get here
-                                    break;
+                                match self
+                                    .get_module_exports(self.ctx.initialProcess.dirBase, ntKernel)
+                                {
+                                    Err(e) => {
+                                        println!(
+                                            "Failed to get module exports for the kernel at 0x{:x}: {}",
+                                            ntKernel,
+                                            e,
+                                        );
+                                        continue;
+                                    }
+                                    Ok(kexports) => {
+                                        return Some((ntKernel, kexports));
+                                    }
                                 }
-                                return Some(ntKernel);
                             }
                         }
                         p += 0x1000;
@@ -364,7 +396,7 @@ impl VMBinding {
                 &self.ctx.process,
                 &mut ret as *mut T as u64,
                 address,
-                std::mem::size_of::<T>() as u64,
+                size_of::<T>() as u64,
             );
         }
         ret
@@ -572,5 +604,153 @@ impl VMBinding {
                 }
             }
         }
+    }
+
+    fn _getvmem(&self, dirbase: Option<u64>, local_begin: u64, begin: u64, end: u64) -> i64 {
+        let len = end - begin;
+        if len <= 8 {
+            let data = match dirbase {
+                Some(d) => unsafe { vmread_sys::VMemReadU64(&self.ctx.process, d, begin) },
+                None => unsafe { vmread_sys::MemReadU64(&self.ctx.process, begin) },
+            };
+            let bit64: [u8; 8] = data.to_le_bytes();
+            let slice =
+                unsafe { std::slice::from_raw_parts_mut(local_begin as *mut u8, len as usize) };
+            for i in 0..len {
+                slice[i as usize] = bit64[i as usize];
+            }
+            return len as i64;
+        }
+        if len <= 0 {
+            return -2;
+        }
+        let mut res: i64 = match dirbase {
+            Some(d) => unsafe {
+                vmread_sys::VMemRead(&self.ctx.process, d, local_begin, begin, len)
+            },
+            None => unsafe { vmread_sys::MemRead(&self.ctx.process, local_begin, begin, len) },
+        };
+        if res < 0 {
+            let chunksize = len / 2;
+            res = self._getvmem(dirbase, local_begin, begin, begin + chunksize);
+            if res < 0 {
+                return res;
+            }
+            res = self._getvmem(dirbase, local_begin + chunksize, begin + chunksize, end);
+        }
+        return res;
+    }
+
+    pub fn getvmem(&self, dirbase: Option<u64>, begin: u64, end: u64) -> Option<Box<[u8]>> {
+        let len = end - begin;
+        let buffer: Box<[std::mem::MaybeUninit<u8>]> = Box::new_uninit_slice(len as usize);
+        let buffer_begin = buffer.as_ptr() as u64;
+        if self._getvmem(dirbase, buffer_begin, begin, end) > 0 {
+            return Some(unsafe { buffer.assume_init() });
+        }
+        return None;
+    }
+
+    pub fn read_cstring_from_physical_mem(&self, addr: u64, maxlen: Option<u64>) -> String {
+        let mut out: Vec<u8> = Vec::new();
+        let mut len = 0;
+        loop {
+            let val: u8 = self.read_physical(addr + len);
+            if val == 0 {
+                break;
+            }
+            out.push(val);
+            len += 1;
+            if let Some(max) = maxlen {
+                if len >= max {
+                    break;
+                }
+            }
+        }
+        std::string::String::from_iter(out.iter().map(|b| *b as char))
+    }
+
+    pub fn memmem(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+        memmem::TwoWaySearcher::new(needle).search_in(haystack)
+    }
+
+    pub fn pmemmem(haystack: &[u8], needle_string: &str) -> Result<Vec<usize>, String> {
+        let mut restr = String::from("(?-u:");
+        for ch in str_chunks(&needle_string, 2) {
+            let chunk: Vec<char> = ch.chars().collect();
+            if chunk.len() != 2 {
+                return Err("input needle_string without even length".to_string());
+            }
+            let (first, second) = (*chunk.get(0).unwrap(), *chunk.get(1).unwrap());
+            let qmPresent = first == '?' || second == '?';
+            let wildcard = first == '?' && second == '?';
+            if qmPresent && !wildcard {
+                return Err("needle_string has wildcards of uneven length".to_string());
+            }
+            if wildcard {
+                restr += ".";
+            } else {
+                restr += "\\x";
+                restr += ch;
+            }
+        }
+        restr += ")";
+
+        let re: Regex = match Regex::new(&restr) {
+            Ok(r) => r,
+            Err(e) => return Err(e.to_string()),
+        };
+        Ok(re.find_iter(haystack).map(|f| f.start()).collect())
+    }
+
+    pub fn memmemn(haystack: &[u8], needle: &[u8], max_opt: Option<usize>) -> Vec<usize> {
+        match Self::memmem(haystack, needle) {
+            None => vec![],
+            Some(offset) => {
+                let res = vec![offset];
+                match max_opt {
+                    Some(1) => res,
+                    other => {
+                        let updatedn = match other {
+                            Some(x) => Some(x - 1),
+                            None => None,
+                        };
+                        let needle_end = offset + needle.len();
+                        let mut downstream_results =
+                            Self::memmemn(&haystack[needle_end..], needle, updatedn);
+                        for res in downstream_results.iter_mut() {
+                            *res += needle_end;
+                        }
+                        let mut res = vec![offset];
+                        res.append(&mut downstream_results);
+                        res
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn get_full_peb(&self, dirbase: u64, physProcess: u64) -> FullPEB {
+        let peb_offset_from_eprocess = self.offsets.unwrap().peb as u64;
+        let ptr: u64 = self.read_physical(physProcess + peb_offset_from_eprocess);
+        self.vread(dirbase, ptr)
+    }
+
+    pub fn get_process_heap(&self, dirbase: u64, physProcess: u64) -> Vec<HEAP> {
+        let peb = self.get_full_peb(dirbase, physProcess);
+        // let primary_heap = peb.ProcessHeap;
+        // println!("PEB->ProcessHeap = 0x{:x}", primary_heap);
+        // println!("PEB->ProcessHeaps = 0x{:x}", peb.ProcessHeaps);
+        let mut res: Vec<HEAP> = Vec::new();
+        let heaps_array_begin: u64 = peb.ProcessHeaps;
+        for heap_index in 0..peb.NumberOfHeaps {
+            let offset = heap_index as usize * size_of::<u64>();
+            let heapptr = heaps_array_begin + offset as u64;
+            // println!("&PEB->ProcessHeaps[{}] = 0x{:x}", heap_index, heapptr);
+            let heap: HEAP = self.vread(dirbase, heapptr);
+            // println!("PEB->ProcessHeaps[{}] = ", heap_index, heapptr);
+            res.push(heap);
+        }
+        return res;
     }
 }

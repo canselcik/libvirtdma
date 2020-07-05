@@ -46,3 +46,114 @@ sa::const_assert!(std::mem::size_of::<heap_entry::HEAP_ENTRY>() == 0x10);
 
 // 0x2c0 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
 sa::const_assert!(std::mem::size_of::<heap_entry::HEAP>() == 0x2c0);
+
+#[derive(Clone, Copy, Debug)]
+pub struct Offsets {
+    pub apl: i64,
+    pub session: i64,
+    pub stackCount: i64,
+    pub imageFileName: i64,
+    pub dirBase: i64,
+    pub peb: i64,
+    pub peb32: i64,
+    pub threadListHead: i64,
+    pub threadListEntry: i64,
+    pub teb: i64,
+}
+
+impl Offsets {
+    pub fn GetOffsets(ntVersion: u16, ntBuild: u32) -> Option<Offsets> {
+        match ntVersion {
+            502 => {
+                /* XP SP2 */
+                Some(Offsets {
+                    apl: 0xe0,
+                    session: 0x260,
+                    stackCount: 0xa0,
+                    imageFileName: 0x268,
+                    dirBase: 0x28,
+                    peb: 0x2c0,
+                    peb32: 0x30,
+                    threadListHead: 0x290,
+                    threadListEntry: 0x3d0,
+                    teb: 0xb0,
+                })
+            }
+            601 => {
+                // Windows 7
+                let mut ret = Offsets {
+                    apl: 0x188,
+                    session: 0x2d8,
+                    stackCount: 0xdc,
+                    imageFileName: 0x2e0,
+                    dirBase: 0x28,
+                    peb: 0x338,
+                    peb32: 0x30,
+                    threadListHead: 0x300,
+                    threadListEntry: 0x420,
+                    teb: 0xb8,
+                };
+                /* SP1 */
+                if ntBuild == 7601 {
+                    ret.imageFileName = 0x2d8;
+                    ret.threadListEntry = 0x428;
+                }
+                Some(ret)
+            }
+            602 => {
+                // Windows 8
+                Some(Offsets {
+                    apl: 0x2e8,
+                    session: 0x430,
+                    stackCount: 0x234,
+                    imageFileName: 0x438,
+                    dirBase: 0x28,
+                    peb: 0x338,
+                    /*peb will be wrong on Windows 8 and 8.1*/
+                    peb32: 0x30,
+                    threadListHead: 0x470,
+                    threadListEntry: 0x400,
+                    teb: 0xf0,
+                })
+            }
+            603 => {
+                // Windows 8.1
+                Some(Offsets {
+                    apl: 0x2e8,
+                    session: 0x430,
+                    stackCount: 0x234,
+                    imageFileName: 0x438,
+                    dirBase: 0x28,
+                    peb: 0x338,
+                    peb32: 0x30,
+                    threadListHead: 0x470,
+                    threadListEntry: 0x688,
+                    /* 0x650 on previous builds */
+                    teb: 0xf0,
+                })
+            }
+            1000 => {
+                // Windows 10
+                let mut ret = Offsets {
+                    apl: 0x2e8, // ActiveProcessLinks
+                    session: 0x448,
+                    stackCount: 0x23c, // _KPROCESS offset
+                    imageFileName: 0x450,
+                    dirBase: 0x28,
+                    peb: 0x3f8,
+                    peb32: 0x30,
+                    threadListHead: 0x488,
+                    threadListEntry: 0x6a8,
+                    teb: 0xf0,
+                };
+                if ntBuild >= 18362 {
+                    // Version 1903 or higher
+                    ret.apl = 0x2f0;
+                    ret.threadListEntry = 0x6b8;
+                }
+                Some(ret)
+            }
+            _ => None,
+        }
+    }
+}

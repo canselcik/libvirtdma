@@ -80,6 +80,13 @@ static pid_t FindKVMProcess()
 
 int InitializeContext(WinCtx* ctx, pid_t pid)
 {
+    if (ctx->ntVersion == 1000) {
+        // temporary case -- already initialized by Rust impl
+        printf("Looks like already initialized... Just setting up offsets");
+        if (SetupOffsets(ctx))
+            return 9;
+        return 0;
+    }
 	memset(ctx, 0, sizeof(WinCtx));
 
 	uint64_t pml4, kernelEntry;

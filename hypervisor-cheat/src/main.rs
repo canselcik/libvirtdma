@@ -6,13 +6,12 @@ extern crate c2rust_bitfields;
 #[macro_use]
 extern crate nix;
 
-use crate::rust_external::*;
+// use crate::rust_external::*;
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
+use crate::vmsession::vm::VMBinding;
 use crate::vmsession::win::teb::TEB;
-use crate::vmsession::VMSession;
 use byteorder::ByteOrder;
 use linefeed::{Interface, ReadResult};
-use vmread::{WinDll, WinProcess};
 
 mod rust_external;
 mod vmsession;
@@ -73,13 +72,13 @@ fn test_parse_u64() {
     assert_eq!(parse_u64("0x0000000004a3f6e1", false), Some(77854433));
 }
 
-fn kmod_to_file(vm: &mut VMSession, cmd: &[String]) {
+fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
     if cmd.len() != 2 {
         println!("Usage: kmod_to_file EasyAntiCheat.sys");
         return;
     }
-    match vm.find_kmod(&cmd[1], false, false) {
-        Some(eac) => match vm.dump_kmod_vmem(&eac.info) {
+    match vm.find_kmod(&cmd[1]) {
+        Some(eac) => match vm.dump_kmod_vmem(&eac) {
             Err(e) => println!("Unable to read kernel module memory: {}", e),
             Ok(mem) => match std::fs::write(eac.name.clone(), &mem) {
                 Ok(_) => println!("Module dumped to {}", eac.name),
@@ -90,122 +89,122 @@ fn kmod_to_file(vm: &mut VMSession, cmd: &[String]) {
     };
 }
 
-fn rust_unity_player_module(
-    vm: &mut VMSession,
-    rust: &mut WinProcess,
-    unityPlayerModule: &mut WinDll,
-) {
-    let all = vm
-        .dump_process_vmem(rust, &unityPlayerModule.info)
-        .expect("failed to read");
+// fn rust_unity_player_module(
+//     vm: &mut VMBinding,
+//     rust: &mut WinProcess,
+//     unityPlayerModule: &mut WinDll,
+// ) {
+//     let all = vm
+//         .dump_process_vmem(rust, &unityPlayerModule.info)
+//         .expect("failed to read");
+//
+//     match VMBinding::pmemmem(
+//         &all,
+//         "488905????????4883c438c348c705????????????????4883c438c3cccccccccc48",
+//     ) {
+//         Ok(res) => {
+//             if res.len() != 1 {
+//                 println!(
+//                     "Found {} matches for GameObjectManager instead of 1",
+//                     res.len()
+//                 );
+//                 return;
+//             }
+//             // UInt64 taggedObjects = m.read<UInt64>(GOM + 0x8);
+//             // UInt64 gameObject = m.read<UInt64>(taggedObjects + 0x10);
+//             let gomsig_offset: u64 = *res.get(0).unwrap() as u64;
+//             let gomsig_addr = unityPlayerModule.info.baseAddress + gomsig_offset;
+//             println!(
+//                 "gomsig found at 0x{:x} (in proc space: 0x{:x})",
+//                 gomsig_offset, gomsig_addr,
+//             );
+//             match vm.find_module_from_addr(&rust.module_list, gomsig_addr) {
+//                 Some(m) => println!("gomsig falls into {}", m.name),
+//                 None => println!("gomsig fall into any module"),
+//             };
+//
+//             let offsetA: i32 = rust.read(&vm.native_ctx, gomsig_addr + 3);
+//             let gom_addr_offset =
+//                 gomsig_addr + 7 - unityPlayerModule.info.baseAddress + offsetA as u64;
+//             let gom_addr = unityPlayerModule.info.baseAddress + gom_addr_offset;
+//
+//             assert_eq!(unityPlayerModule.info.baseAddress + 0x17a6ad8, gom_addr);
+//
+//             println!(
+//                 "gomaddr in proc space: 0x{:x} (offset: 0x{:x})",
+//                 gom_addr, gom_addr_offset,
+//             );
+//             match vm.find_module_from_addr(&rust.module_list, gom_addr) {
+//                 Some(m) => println!("gom falls into {}", m.name),
+//                 None => println!("gom doesnt fall into any module"),
+//             };
+//
+//             let gomdata: [u8; 0x20] = rust.read(&vm.native_ctx.clone(), gom_addr);
+//             let gom: GameObjectManager = unsafe { std::mem::transmute(gomdata) };
+//
+//             println!("GOM: {:#?}", gom);
+//             hexdump::hexdump(&gomdata);
+//
+//             let lto: LastObjectBase =
+//                 rust.read(&vm.native_ctx.clone(), gom.lastTaggedObject as u64);
+//             println!("LTO: {:#?}", lto);
+//         }
+//         Err(e) => println!("Error while searching GOM: {}", e),
+//     };
+// }
+//
+// fn rust_game_assembly_module(
+//     vm: &mut VMBinding,
+//     rust: &mut WinProcess,
+//     gameAssemblyModule: &mut WinDll,
+// ) {
+//     /* possible patterns:
+//          BaseNetworkable: 488b05????????488b88????????488b094885c974????33c08bd5
+//          CanAttack: E8????????488B8F????????0FB6F0
+//          CreateProjectile: 48895C24??48896C24??48897424??48897C24??41564883EC50803D??????????498BD9498BE8
+//          SendProjectileAttack: E8????????F20F1083????????F20F1183????????8B83????????8983????????80BB??????????
+//     */
+//     let bnaddr = gameAssemblyModule.info.baseAddress + 0x28861B0;
+//
+//     match vm.find_module_from_addr(&rust.module_list, bnaddr) {
+//         Some(m) => println!("BN falls into {}", m.name),
+//         None => println!("BN doesnt into any module"),
+//     };
+//     let networkable: [u8; std::mem::size_of::<BaseNetworkable>()] =
+//         rust.read(&vm.native_ctx.clone(), bnaddr);
+//     hexdump::hexdump(&networkable);
+//
+//     let nb: BaseNetworkable = unsafe { std::mem::transmute(networkable) };
+//     println!("BaseNetworkable: {:#?}", nb);
+//
+//     let parentData: [u8; std::mem::size_of::<EntityRef>()] = rust.read(
+//         &vm.clone(),
+//         nb.parentEntityRef + gameAssemblyModule.info.baseAddress,
+//     );
+//
+//     let eref: EntityRef = unsafe { std::mem::transmute(parentData) };
+//     println!("EREF: {:#?}", eref);
+// }
+//
+// fn rust_routine(vm: &mut VMBinding) {
+//     match vm.find_process("RustClient.exe", false, true, true) {
+//         Some(mut rust) => {
+//             println!("Found RustClient.exe");
+//             rust.refresh_modules(vm.native_ctx.clone());
+//             let mut modules = rust.module_list.clone();
+//             for module in modules.iter_mut() {
+//                 match module.name.as_ref() {
+//                     "UnityPlayer.dll" => rust_unity_player_module(vm, &mut rust, module),
+//                     "GameAssembly.dll" => rust_game_assembly_module(vm, &mut rust, module),
+//                     _ => {}
+//                 }
+//             }
+//         }
+//         None => println!("Unable to find RustClient.exe"),
+//     }
+// }
 
-    match VMSession::pmemmem(
-        &all,
-        "488905????????4883c438c348c705????????????????4883c438c3cccccccccc48",
-    ) {
-        Ok(res) => {
-            if res.len() != 1 {
-                println!(
-                    "Found {} matches for GameObjectManager instead of 1",
-                    res.len()
-                );
-                return;
-            }
-            // UInt64 taggedObjects = m.read<UInt64>(GOM + 0x8);
-            // UInt64 gameObject = m.read<UInt64>(taggedObjects + 0x10);
-            let gomsig_offset: u64 = *res.get(0).unwrap() as u64;
-            let gomsig_addr = unityPlayerModule.info.baseAddress + gomsig_offset;
-            println!(
-                "gomsig found at 0x{:x} (in proc space: 0x{:x})",
-                gomsig_offset, gomsig_addr,
-            );
-            match vm.find_module_from_addr(&rust.module_list, gomsig_addr) {
-                Some(m) => println!("gomsig falls into {}", m.name),
-                None => println!("gomsig fall into any module"),
-            };
-
-            let offsetA: i32 = rust.read(&vm.native_ctx, gomsig_addr + 3);
-            let gom_addr_offset =
-                gomsig_addr + 7 - unityPlayerModule.info.baseAddress + offsetA as u64;
-            let gom_addr = unityPlayerModule.info.baseAddress + gom_addr_offset;
-
-            assert_eq!(unityPlayerModule.info.baseAddress + 0x17a6ad8, gom_addr);
-
-            println!(
-                "gomaddr in proc space: 0x{:x} (offset: 0x{:x})",
-                gom_addr, gom_addr_offset,
-            );
-            match vm.find_module_from_addr(&rust.module_list, gom_addr) {
-                Some(m) => println!("gom falls into {}", m.name),
-                None => println!("gom doesnt fall into any module"),
-            };
-
-            let gomdata: [u8; 0x20] = rust.read(&vm.native_ctx.clone(), gom_addr);
-            let gom: GameObjectManager = unsafe { std::mem::transmute(gomdata) };
-
-            println!("GOM: {:#?}", gom);
-            hexdump::hexdump(&gomdata);
-
-            let lto: LastObjectBase =
-                rust.read(&vm.native_ctx.clone(), gom.lastTaggedObject as u64);
-            println!("LTO: {:#?}", lto);
-        }
-        Err(e) => println!("Error while searching GOM: {}", e),
-    };
-}
-
-fn rust_game_assembly_module(
-    vm: &mut VMSession,
-    rust: &mut WinProcess,
-    gameAssemblyModule: &mut WinDll,
-) {
-    /* possible patterns:
-         BaseNetworkable: 488b05????????488b88????????488b094885c974????33c08bd5
-         CanAttack: E8????????488B8F????????0FB6F0
-         CreateProjectile: 48895C24??48896C24??48897424??48897C24??41564883EC50803D??????????498BD9498BE8
-         SendProjectileAttack: E8????????F20F1083????????F20F1183????????8B83????????8983????????80BB??????????
-    */
-    let bnaddr = gameAssemblyModule.info.baseAddress + 0x28861B0;
-
-    match vm.find_module_from_addr(&rust.module_list, bnaddr) {
-        Some(m) => println!("BN falls into {}", m.name),
-        None => println!("BN doesnt into any module"),
-    };
-    let networkable: [u8; std::mem::size_of::<BaseNetworkable>()] =
-        rust.read(&vm.native_ctx.clone(), bnaddr);
-    hexdump::hexdump(&networkable);
-
-    let nb: BaseNetworkable = unsafe { std::mem::transmute(networkable) };
-    println!("BaseNetworkable: {:#?}", nb);
-
-    let parentData: [u8; std::mem::size_of::<EntityRef>()] = rust.read(
-        &vm.native_ctx.clone(),
-        nb.parentEntityRef + gameAssemblyModule.info.baseAddress,
-    );
-
-    let eref: EntityRef = unsafe { std::mem::transmute(parentData) };
-    println!("EREF: {:#?}", eref);
-}
-
-fn rust_routine(vm: &mut VMSession) {
-    match vm.find_process("RustClient.exe", false, true, true) {
-        Some(mut rust) => {
-            println!("Found RustClient.exe");
-            rust.refresh_modules(vm.native_ctx.clone());
-            let mut modules = rust.module_list.clone();
-            for module in modules.iter_mut() {
-                match module.name.as_ref() {
-                    "UnityPlayer.dll" => rust_unity_player_module(vm, &mut rust, module),
-                    "GameAssembly.dll" => rust_game_assembly_module(vm, &mut rust, module),
-                    _ => {}
-                }
-            }
-        }
-        None => println!("Unable to find RustClient.exe"),
-    }
-}
-
-fn inspect(_vm: &VMSession, info: &mut ProcKernelInfo) {
+fn inspect(_vm: &VMBinding, info: &mut ProcKernelInfo) {
     println!(
         "Inspecting process with PID {}...",
         info.eprocess.UniqueProcessId
@@ -265,16 +264,14 @@ Other Commands:
 }
 
 fn dispatch_commands(
-    vm: std::sync::Arc<VMSession>,
+    vm: &VMBinding,
     parts: Vec<String>,
     context: &mut Option<ProcKernelInfo>,
 ) -> Option<DispatchCommandReturnAction> {
     match parts[0].as_ref() {
-        "winexports" | "kernelexports" | "kexports" => vm.as_mut().list_kernel_exports(),
-        "listkmod" | "listkmods" => vm.as_mut().list_kmods(true),
-        "listproc" | "listprocs" | "listprocess" | "listprocesses" => {
-            vm.as_mut().list_process(true, true)
-        }
+        "winexports" | "kernelexports" | "kexports" => vm.list_kernel_procs(),
+        "listkmod" | "listkmods" => vm.list_kmods(),
+        "listproc" | "listprocs" | "listprocess" | "listprocesses" => vm.list_processes(),
         "close" => {
             return match context {
                 None => {
@@ -326,16 +323,16 @@ fn dispatch_commands(
             if parts.len() != 2 {
                 println!("usage: openprocess <ProcessName>");
             } else {
-                return match vm.as_mut().find_process(&parts[1], false, true, true) {
+                return match vm.find_process(&parts[1]) {
                     None => {
                         println!("Unable to find a process with name '{}'", &parts[1]);
                         None
                     }
-                    Some(proc) => match vm.eprocess_for_pid(proc.proc.pid) {
+                    Some(proc) => match vm.eprocess_for_pid(proc.pid) {
                         None => {
                             println!(
                                 "Unable to find a kernel EPROCESS entry for PID {}",
-                                proc.proc.pid
+                                proc.pid,
                             );
                             None
                         }
@@ -383,7 +380,7 @@ fn dispatch_commands(
                 let peb =
                     vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
                 let loader =
-                    peb.read_loader_using_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
+                    peb.read_loader_with_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
                 println!("{:#?}", loader);
             }
             None => println!("usage: loader (after entering a process context"),
@@ -420,7 +417,7 @@ fn dispatch_commands(
                 let peb =
                     vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
                 let loader =
-                    peb.read_loader_using_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
+                    peb.read_loader_with_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
                 let first_link = loader.InLoadOrderModuleList.Flink;
                 let mut module = loader.getFirstInLoadOrderModuleListWithDirbase(
                     &vm,
@@ -434,9 +431,9 @@ fn dispatch_commands(
                     if m.InLoadOrderModuleList.Flink == first_link {
                         break;
                     }
-                    let name = match m.BaseDllName.resolve_with_dirbase(
+                    let name = match m.BaseDllName.resolve(
                         &vm,
-                        info.eprocess.Pcb.DirectoryTableBase,
+                        Some(info.eprocess.Pcb.DirectoryTableBase),
                         Some(512),
                     ) {
                         Some(n) => n,
@@ -499,14 +496,14 @@ fn dispatch_commands(
                 for thread in threads.iter() {
                     let moniker = if thread.ThreadName != 0 {
                         vm.read_cstring_from_physical_mem(
-                            vm.translate(vm.native_ctx.initialProcess.dirBase, thread.ThreadName),
+                            vm.native_translate(vm.initialProcess.dirBase, thread.ThreadName),
                             Some(32),
                         )
                     } else {
                         format!("0x{:x}", thread.CidUniqueThread)
                     };
                     let teb: TEB = vm.read_physical(
-                        vm.translate(info.eprocess.Pcb.DirectoryTableBase, thread.Tcb.Teb),
+                        vm.native_translate(info.eprocess.Pcb.DirectoryTableBase, thread.Tcb.Teb),
                     );
                     println!(
                         "  Found Thread '{}' ({} + {}) with TEB PVA @ 0x{:x}",
@@ -552,9 +549,9 @@ fn dispatch_commands(
             }
         }
         "walk_eprocess" => vm.walk_eprocess(),
-        "rust" => rust_routine(vm.as_mut()),
+        // "rust" => rust_routine(vm.as_mut()),
         "quit" | "exit" => std::process::exit(0),
-        "kmod_to_file" => kmod_to_file(vm.as_mut(), &parts),
+        "kmod_to_file" => kmod_to_file(&vm, &parts),
         "memread" => {
             if parts.len() != 3 {
                 println!("usage: pmemread <hPA> <hSize>");
@@ -583,9 +580,9 @@ fn dispatch_commands(
             if parts.len() != 2 {
                 println!("Usage: list_process_modules explorer.exe")
             } else {
-                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                match vm.find_process(&parts[1]) {
                     None => println!("Unable to find a process with matching name"),
-                    Some(mut proc) => vm.list_process_modules(&mut proc, true),
+                    Some(mut proc) => vm.list_process_modules(&mut proc),
                 }
             }
         }
@@ -593,9 +590,9 @@ fn dispatch_commands(
             if parts.len() != 2 {
                 println!("Usage: list_process_sections explorer.exe")
             } else {
-                match vm.as_mut().find_process(&parts[1], false, true, true) {
+                match vm.find_process(&parts[1]) {
                     None => println!("Unable to find a process with matching name"),
-                    Some(mut proc) => vm.pinspect(&mut proc, true),
+                    Some(mut proc) => vm.pinspect(&mut proc),
                 }
             }
         }
@@ -616,15 +613,13 @@ enum DispatchCommandReturnAction {
 }
 
 fn main() {
-    // let bind = vmsession::nativebinding::VMBinding::new();
-    // return;
-
     ctrlc::set_handler(move || {
         println!("Exiting gracfully...");
         std::process::exit(0);
     })
     .expect("Error setting Ctrl-C handler");
-    let vm = vmsession::VMSession::new().expect("Failed to initialize");
+
+    let vm = VMBinding::new().expect("failed to bind");
     let histfile = format!(
         "{}/.vmread_hist",
         match dirs::home_dir() {
@@ -667,9 +662,7 @@ fn main() {
                 if parts.is_empty() {
                     println!("Empty command invalid")
                 } else {
-                    if let Some(context_action) =
-                        dispatch_commands(std::sync::Arc::clone(&vm), parts, &mut open_process)
-                    {
+                    if let Some(context_action) = dispatch_commands(&vm, parts, &mut open_process) {
                         match context_action {
                             DispatchCommandReturnAction::EnterKernelContext => {
                                 println!("not implemented yet");

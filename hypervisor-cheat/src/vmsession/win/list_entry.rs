@@ -1,6 +1,4 @@
-use crate::vmsession::VMSession;
-use vmread::WinProcess;
-use vmread_sys::{ProcessData, WinCtx};
+use crate::vmsession::vm::VMBinding;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -15,34 +13,22 @@ impl std::fmt::Debug for SingleListEntry {
 }
 
 impl SingleListEntry {
-    pub fn getNextFromProcess<T>(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-        listEntryOffsetInTargetStruct: u64,
-    ) -> Option<T> {
-        if self.Next == 0 {
-            return None;
-        }
-        Some(proc.read(native_ctx, self.Next - listEntryOffsetInTargetStruct))
-    }
-
     pub fn getNextFromKernelInitialProcess<T>(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
         if self.Next == 0 {
             return None;
         }
-        Some(vm.read_physical(
-            vm.native_ctx.initialProcess.dirBase + self.Next - listEntryOffsetInTargetStruct,
-        ))
+        Some(
+            vm.read_physical(vm.initialProcess.dirBase + self.Next - listEntryOffsetInTargetStruct),
+        )
     }
 
     pub fn getNextWithDirbase<T>(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         dirbase: Option<u64>,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
@@ -50,13 +36,7 @@ impl SingleListEntry {
             return None;
         }
         let addr = match dirbase {
-            Some(d) => unsafe {
-                vmread_sys::VTranslate(
-                    &vm.native_ctx.process as *const ProcessData,
-                    d,
-                    self.Next - listEntryOffsetInTargetStruct,
-                )
-            },
+            Some(d) => vm.native_translate(d, self.Next - listEntryOffsetInTargetStruct),
             None => self.Next - listEntryOffsetInTargetStruct,
         };
         Some(vm.read_physical(addr))
@@ -81,34 +61,24 @@ impl std::fmt::Debug for ListEntry {
 }
 
 impl ListEntry {
-    pub fn getNextFromProcess<T>(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-        listEntryOffsetInTargetStruct: u64,
-    ) -> Option<T> {
-        if self.Flink == 0 {
-            return None;
-        }
-        Some(proc.read(native_ctx, self.Flink - listEntryOffsetInTargetStruct))
-    }
-
     pub fn getNextFromKernelInitialProcess<T>(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
         if self.Flink == 0 {
             return None;
         }
-        Some(vm.read_physical(
-            vm.native_ctx.initialProcess.dirBase + self.Flink - listEntryOffsetInTargetStruct,
-        ))
+        Some(
+            vm.read_physical(
+                vm.initialProcess.dirBase + self.Flink - listEntryOffsetInTargetStruct,
+            ),
+        )
     }
 
     pub fn getNextWithDirbase<T>(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         dirbase: Option<u64>,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
@@ -116,46 +86,30 @@ impl ListEntry {
             return None;
         }
         let addr = match dirbase {
-            Some(d) => unsafe {
-                vmread_sys::VTranslate(
-                    &vm.native_ctx.process as *const ProcessData,
-                    d,
-                    self.Flink - listEntryOffsetInTargetStruct,
-                )
-            },
+            Some(d) => vm.native_translate(d, self.Flink - listEntryOffsetInTargetStruct),
             None => self.Flink - listEntryOffsetInTargetStruct,
         };
         Some(vm.read_physical(addr))
     }
 
-    pub fn getPreviousFromProcess<T>(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-        listEntryOffsetInTargetStruct: u64,
-    ) -> Option<T> {
-        if self.Blink == 0 {
-            return None;
-        }
-        Some(proc.read(native_ctx, self.Blink - listEntryOffsetInTargetStruct))
-    }
-
     pub fn getPreviousFromKernelInitialProcess<T>(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
         if self.Blink == 0 {
             return None;
         }
-        Some(vm.read_physical(
-            vm.native_ctx.initialProcess.dirBase + self.Blink - listEntryOffsetInTargetStruct,
-        ))
+        Some(
+            vm.read_physical(
+                vm.initialProcess.dirBase + self.Blink - listEntryOffsetInTargetStruct,
+            ),
+        )
     }
 
     pub fn getPreviousWithDirbase<T>(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         dirbase: Option<u64>,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
@@ -163,14 +117,8 @@ impl ListEntry {
             return None;
         }
         let addr = match dirbase {
-            Some(d) => unsafe {
-                vmread_sys::VTranslate(
-                    &vm.native_ctx.process as *const ProcessData,
-                    d,
-                    self.Blink - listEntryOffsetInTargetStruct,
-                )
-            },
-            None => self.Blink - listEntryOffsetInTargetStruct,
+            Some(d) => vm.native_translate(d, self.Blink - listEntryOffsetInTargetStruct),
+            None => self.Flink - listEntryOffsetInTargetStruct,
         };
         Some(vm.read_physical(addr))
     }

@@ -1,15 +1,11 @@
+use crate::vmsession::vm::VMBinding;
 use crate::vmsession::win::misc::*;
 use crate::vmsession::win::peb_bitfield::PEBBitfield;
 use crate::vmsession::win::peb_ldr_data::PebLdrData;
-use crate::vmsession::VMSession;
-use vmread::WinProcess;
 
 impl FullPEB {
-    pub fn read_loader(&self, vm: &VMSession, proc: &WinProcess) -> PebLdrData {
-        proc.read(&vm.native_ctx, self.Ldr)
-    }
-    pub fn read_loader_using_dirbase(&self, vm: &VMSession, dirbase: u64) -> PebLdrData {
-        vm.read_with_dirbase(dirbase, self.Ldr)
+    pub fn read_loader_with_dirbase(&self, vm: &VMBinding, dirbase: u64) -> PebLdrData {
+        vm.vread(dirbase, self.Ldr)
     }
 }
 

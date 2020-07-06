@@ -1,5 +1,5 @@
 use super::vmread_bind;
-use crate::vmsession::vm::{NtHeaders, VMBinding};
+use crate::vmsession::vm::{NtHeaders, ProcessData, VMBinding, WinExport, WinProc};
 use crate::vmsession::win::Offsets;
 use byteorder::ByteOrder;
 use itertools::Itertools;
@@ -12,66 +12,41 @@ use regex::bytes::Regex;
 use std::collections::HashMap;
 use std::io::Read;
 use std::process::Stdio;
-use vmread::WinExport;
-use vmread_sys::{ProcessData, WinCtx, WinExportList, WinOffsets, WinProc};
-
-fn empty_winctx_with_process_data(proc_data: ProcessData) -> WinCtx {
-    WinCtx {
-        process: proc_data,
-        offsets: WinOffsets {
-            apl: 0,
-            session: 0,
-            stackCount: 0,
-            imageFileName: 0,
-            dirBase: 0,
-            peb: 0,
-            peb32: 0,
-            threadListHead: 0,
-            threadListEntry: 0,
-            teb: 0,
-        },
-        ntKernel: 0,
-        ntVersion: 0,
-        ntBuild: 0,
-        ntExports: WinExportList {
-            list: std::ptr::null_mut(),
-            size: 0,
-        },
-        initialProcess: WinProc {
-            process: 0,
-            physProcess: 0,
-            dirBase: 0,
-            pid: 0,
-            name: std::ptr::null_mut(),
-        },
-    }
-}
 
 impl VMBinding {
     pub fn new() -> Option<VMBinding> {
         let mut binding = VMBinding {
             offsets: None,
-            cachedKernelExports: HashMap::new(),
-            kernelEntry: 0,
-            ctx: empty_winctx_with_process_data(match Self::create_process_data() {
+            cachedNtExports: HashMap::new(),
+            ntKernelEntry: 0,
+            ntVersion: 0,
+            ntBuild: 0,
+            process: match Self::create_process_data() {
                 None => return None,
                 Some(s) => s,
-            }),
+            },
+            initialProcess: WinProc {
+                process: 0,
+                physProcess: 0,
+                dirBase: 0,
+                pid: 0,
+                name: "".to_string(),
+            },
         };
         if !binding.init_device() {
             return None;
         }
         match binding.find_initial_process() {
             Some((pml4, kernel_entry)) => {
-                binding.ctx.initialProcess.dirBase = pml4;
-                binding.kernelEntry = kernel_entry;
+                binding.initialProcess.dirBase = pml4;
+                binding.ntKernelEntry = kernel_entry;
                 match binding.find_nt_kernel(kernel_entry) {
                     Some((ntk, kexports)) => {
                         println!("NTKernel ModuleBase @ 0x{:x}", ntk);
                         println!("Found {} kernel exports", kexports.len());
                         // Less than ideal but we do it once. Better than having optionals or mutexes everywhere
                         for (k, v) in kexports.iter() {
-                            binding.cachedKernelExports.insert(k.clone(), v.clone());
+                            binding.cachedNtExports.insert(k.clone(), v.clone());
                         }
                     }
                     None => {
@@ -92,16 +67,16 @@ impl VMBinding {
             Some(0) | None => return None,
             Some(addr) => addr,
         };
-        binding.ctx.initialProcess.process =
-            binding.vread(binding.ctx.initialProcess.dirBase, initProcAddr);
-        binding.ctx.initialProcess.physProcess = binding.native_translate(
-            binding.ctx.initialProcess.dirBase,
-            binding.ctx.initialProcess.process,
+        binding.initialProcess.process =
+            binding.vread(binding.initialProcess.dirBase, initProcAddr);
+        binding.initialProcess.physProcess = binding.native_translate(
+            binding.initialProcess.dirBase,
+            binding.initialProcess.process,
         );
 
-        binding.ctx.ntVersion = binding.get_nt_version();
-        binding.ctx.ntBuild = binding.get_nt_build();
-        binding.offsets = Offsets::GetOffsets(binding.ctx.ntVersion, binding.ctx.ntBuild);
+        binding.ntVersion = binding.get_nt_version();
+        binding.ntBuild = binding.get_nt_build();
+        binding.offsets = Offsets::GetOffsets(binding.ntVersion, binding.ntBuild);
         if binding.offsets.is_none() {
             return None;
         };
@@ -199,7 +174,7 @@ impl VMBinding {
             Some(addr) => addr,
         };
 
-        let buf: [u8; 0x100] = self.vread(self.ctx.initialProcess.dirBase, getVersion);
+        let buf: [u8; 0x100] = self.vread(self.initialProcess.dirBase, getVersion);
         let mut major: u8 = 0;
         let mut minor: u8 = 0;
 
@@ -230,7 +205,7 @@ impl VMBinding {
             Some(0) | None => return 0,
             Some(addr) => addr,
         };
-        let buf: [u8; 0x100] = self.vread(self.ctx.initialProcess.dirBase, getVersion);
+        let buf: [u8; 0x100] = self.vread(self.initialProcess.dirBase, getVersion);
 
         /* Find writes to rcx +12 -- that's where the version number is stored. These instructions are not on XP, but that is simply irrelevant. */
         for i in 0..240 {
@@ -250,7 +225,7 @@ impl VMBinding {
             while i > kernelEntry - 0x20000000 {
                 for o in 0..0x20 {
                     let buf: [u8; 0x10000] =
-                        self.vread(self.ctx.initialProcess.dirBase, i + 0x10000 * o);
+                        self.vread(self.initialProcess.dirBase, i + 0x10000 * o);
                     let mut p = 0;
                     while p < 0x10000 {
                         if ((i + 0x1000 * o + p) & mask) != 0 {
@@ -278,8 +253,7 @@ impl VMBinding {
                                     == 0x45444f434c4f4f50;
                             if kdbg && poolCode {
                                 let ntKernel = i + 0x10000 * o + p;
-                                match self
-                                    .get_module_exports(self.ctx.initialProcess.dirBase, ntKernel)
+                                match self.get_module_exports(self.initialProcess.dirBase, ntKernel)
                                 {
                                     Err(e) => {
                                         println!(
@@ -392,7 +366,7 @@ impl VMBinding {
                 return false;
             }
         };
-        let res = match unsafe { vmread_bind(fd, &mut self.ctx.process as *mut ProcessData) } {
+        let res = match unsafe { vmread_bind(fd, &mut self.process as *mut ProcessData) } {
             Ok(res) => res == 0,
             Err(e) => {
                 println!("Failed to call vmread ioctl: {}", e.to_string());

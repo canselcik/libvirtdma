@@ -1,22 +1,24 @@
-use crate::vmsession::vm::VMBinding;
+use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
+use crate::vmsession::vm::{VMBinding, WinExport};
+use crate::vmsession::win::eprocess::EPROCESS;
+use crate::vmsession::win::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
 use crate::vmsession::win::heap_entry::HEAP;
 use crate::vmsession::win::peb::FullPEB;
-use pelite::image::{IMAGE_EXPORT_DIRECTORY, IMAGE_FILE_HEADER};
+use itertools::Itertools;
+use pelite::image::{IMAGE_DATA_DIRECTORY, IMAGE_EXPORT_DIRECTORY, IMAGE_FILE_HEADER};
 use pelite::pe64::image::IMAGE_OPTIONAL_HEADER;
 use std::collections::HashMap;
 use std::mem::size_of;
-use vmread::WinExport;
-use vmread_sys::IMAGE_DATA_DIRECTORY;
 
 impl VMBinding {
     pub fn list_kernel_procs(&self) {
-        for (sname, rec) in self.cachedKernelExports.iter() {
+        for (sname, rec) in self.cachedNtExports.iter() {
             println!("KernelExport @ 0x{:x}\t{}", rec.address, sname);
         }
     }
 
     pub fn find_kernel_proc(&self, name: &str) -> Option<u64> {
-        match self.cachedKernelExports.get(name) {
+        match self.cachedNtExports.get(name) {
             None => None,
             Some(export) => Some(export.address),
         }
@@ -137,5 +139,112 @@ impl VMBinding {
             res.push(heap);
         }
         return res;
+    }
+
+    pub fn get_eprocess_entries(&self, pid_filter: Option<u64>) -> HashMap<u64, ProcKernelInfo> {
+        let mut m: HashMap<u64, ProcKernelInfo> = HashMap::new();
+        let mut curProc = self.initialProcess.physProcess;
+        let mut virtProcess = self.initialProcess.process;
+        loop {
+            let eprocess: EPROCESS = self.read_physical(curProc);
+            if eprocess.UniqueProcessId == 0 {
+                println!("Returning early from walking EPROCESS because PID is 0");
+                break;
+            }
+
+            let dirbase = eprocess.Pcb.DirectoryTableBase;
+
+            // The end of the process list usually has corrupted values,
+            // some sort of address, and we avoid the issue by checking
+            // the PID (which shouldn't be over 32 bit limit anyways)
+            if eprocess.UniqueProcessId >= 2u64.pow(31) {
+                // println!("Skipping EPROCESS entry due to due to corrupt PID");
+            } else if eprocess.Pcb.StackCount < 1 {
+                // println!("Skipping EPROCESS entry due to due to StackCount = 0");
+            } else {
+                if pid_filter.is_none() || pid_filter.unwrap() == eprocess.UniqueProcessId {
+                    let peb = self.get_full_peb(eprocess.Pcb.DirectoryTableBase, curProc);
+                    let ldr = peb.read_loader_with_dirbase(&self, dirbase);
+                    let base_module_name =
+                        match ldr.getFirstInMemoryOrderModuleListWithDirbase(&self, dirbase) {
+                            None => eprocess.ImageFileName.iter().map(|b| *b as char).join(""),
+                            Some(m) => m
+                                .BaseDllName
+                                .resolve(&self, Some(dirbase), Some(512))
+                                .unwrap_or("unknown".to_string()),
+                        };
+                    m.insert(
+                        eprocess.UniqueProcessId,
+                        ProcKernelInfo::new(&base_module_name, eprocess, virtProcess, curProc),
+                    );
+                }
+            }
+
+            let aplOffset = self.offsets.unwrap().apl as u64;
+            let vp: u64 = self.read_physical(curProc + aplOffset);
+            virtProcess = vp - aplOffset;
+            if virtProcess == 0 {
+                println!("Returning early from walking EPROCESS list due to VIRTPROC == 0");
+                break;
+            }
+            curProc = self.native_translate(self.initialProcess.dirBase, virtProcess);
+            if curProc == 0 {
+                println!("Returning early from walking EPROCESS list due to CURPROC == 0");
+                break;
+            }
+            if curProc == self.initialProcess.physProcess
+                || virtProcess == self.initialProcess.process
+            {
+                // println!("Completed walking kernel EPROCESS list");
+                break;
+            }
+        }
+        return m;
+    }
+
+    pub fn walk_eprocess(&self) {
+        for (pid, info) in self.get_eprocess_entries(None).iter() {
+            println!(
+                "EPROCESS[pid={}, name={}, virtual=0x{:x}, phys=0x{:x}, activeThreads={}]",
+                pid,
+                info.name,
+                info.eprocessVirtAddr,
+                info.eprocessPhysAddr,
+                info.eprocess.ActiveThreads,
+            );
+        }
+    }
+
+    pub fn threads_from_eprocess(&self, info: &ProcKernelInfo) -> Vec<ETHREAD> {
+        // The non KPROCESS ThreadList doesn't seem to work but this is an okay workaround.
+        let mut kThNext: Option<ETHREAD> = info.eprocess.Pcb.ThreadListHead.getNextWithDirbase(
+            &self,
+            Some(info.eprocess.Pcb.DirectoryTableBase),
+            KTHREAD_THREAD_LIST_OFFSET,
+        );
+        let active_thread_count = info.eprocess.ActiveThreads;
+        let mut threads = Vec::with_capacity(active_thread_count as usize);
+        for _ in 0..active_thread_count {
+            match kThNext {
+                Some(curr) => {
+                    kThNext = curr.Tcb.ThreadListEntry.getNextWithDirbase(
+                        &self,
+                        Some(info.eprocess.Pcb.DirectoryTableBase),
+                        KTHREAD_THREAD_LIST_OFFSET,
+                    );
+                    threads.push(curr);
+                }
+                None => break,
+            }
+        }
+        return threads;
+    }
+
+    pub fn eprocess_for_pid(&self, pid: u64) -> Option<ProcKernelInfo> {
+        let procs = self.get_eprocess_entries(Some(pid));
+        match procs.get(&pid) {
+            Some(r) => Some(r.clone()),
+            None => None,
+        }
     }
 }

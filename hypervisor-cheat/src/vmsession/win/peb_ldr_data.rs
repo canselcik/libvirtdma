@@ -1,8 +1,6 @@
+use crate::vmsession::vm::VMBinding;
 use crate::vmsession::win::list_entry::ListEntry;
 use crate::vmsession::win::unicode_string::UnicodeString;
-use crate::vmsession::VMSession;
-use vmread::WinProcess;
-use vmread_sys::WinCtx;
 
 // 0x58 bytes (sizeof)
 #[repr(C)]
@@ -37,10 +35,9 @@ impl PebLdrData {
 
     pub fn getFirstInMemoryOrderModuleListWithDirbase(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         dirbase: u64,
     ) -> Option<LdrModule> {
-        // For some reason we get full paths on this
         self.InMemoryOrderModuleList.getNextWithDirbase(
             vm,
             Some(dirbase),
@@ -50,43 +47,21 @@ impl PebLdrData {
 
     pub fn getFirstInLoadOrderModuleListWithDirbase(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         dirbase: u64,
     ) -> Option<LdrModule> {
         self.InLoadOrderModuleList
             .getNextWithDirbase(vm, Some(dirbase), 0)
     }
 
-    pub fn getFirstInLoadOrderModuleListForProcess(
+    pub fn getFirstInInitializationOrderModuleListWithDirbase(
         &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
+        vm: &VMBinding,
+        dirbase: u64,
     ) -> Option<LdrModule> {
-        self.InLoadOrderModuleList
-            .getNextFromProcess(native_ctx, proc, 0)
-    }
-
-    pub fn getFirstInMemoryOrderModuleListForProcess(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-    ) -> Option<LdrModule> {
-        // For some reason we get full paths on this
-        self.InMemoryOrderModuleList.getNextFromProcess(
-            native_ctx,
-            proc,
-            std::mem::size_of::<ListEntry>() as u64,
-        )
-    }
-
-    pub fn getFirstInInitializationOrderModuleListForProcess(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-    ) -> Option<LdrModule> {
-        self.InInitializationOrderModuleList.getNextFromProcess(
-            native_ctx,
-            proc,
+        self.InInitializationOrderModuleList.getNextWithDirbase(
+            vm,
+            Some(dirbase),
             2 * std::mem::size_of::<ListEntry>() as u64,
         )
     }
@@ -111,18 +86,9 @@ pub struct LdrModule {
 }
 
 impl LdrModule {
-    pub fn getNextInLoadOrderModuleListForProcess(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-    ) -> Option<LdrModule> {
-        self.InLoadOrderModuleList
-            .getNextFromProcess(native_ctx, proc, 0)
-    }
-
     pub fn getNextInLoadOrderModuleListWithDirbase(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         dirbase: Option<u64>,
     ) -> Option<LdrModule> {
         self.InLoadOrderModuleList
@@ -131,37 +97,13 @@ impl LdrModule {
 
     pub fn getNextInMemoryOrderModuleListWithDirbase(
         &self,
-        vm: &VMSession,
+        vm: &VMBinding,
         dirbase: Option<u64>,
     ) -> Option<LdrModule> {
         self.InMemoryOrderModuleList.getNextWithDirbase(
             vm,
             dirbase,
             std::mem::size_of::<ListEntry>() as u64,
-        )
-    }
-
-    pub fn getNextInMemoryOrderModuleListForProcess(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-    ) -> Option<LdrModule> {
-        self.InMemoryOrderModuleList.getNextFromProcess(
-            native_ctx,
-            proc,
-            std::mem::size_of::<ListEntry>() as u64,
-        )
-    }
-
-    pub fn getNextInInitializationOrderModuleListForProcess(
-        &self,
-        native_ctx: &WinCtx,
-        proc: &WinProcess,
-    ) -> Option<LdrModule> {
-        self.InInitializationOrderModuleList.getNextFromProcess(
-            native_ctx,
-            proc,
-            2 * std::mem::size_of::<ListEntry>() as u64,
         )
     }
 }

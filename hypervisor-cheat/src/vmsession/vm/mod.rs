@@ -1,9 +1,8 @@
 use crate::vmsession::win::Offsets;
 use std::collections::HashMap;
-use vmread::WinExport;
-use vmread_sys::{ProcessData, WinCtx};
 
 pub mod binding_init;
+pub mod binding_porcelain;
 pub mod binding_read;
 pub mod binding_search;
 pub mod nativebinding;
@@ -20,9 +19,44 @@ pub enum NtHeaders {
     Bit32(pelite::pe32::image::IMAGE_NT_HEADERS),
 }
 
+#[repr(C)]
+#[derive(Debug, Default, Copy, Clone)]
+pub struct ProcessData {
+    pub mapsStart: u64,
+    pub mapsSize: u64,
+    pub pid: i32,
+}
+
+#[derive(Clone, Default)]
+pub struct WinExport {
+    pub name: String,
+    pub address: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct WinModule {
+    pub baseAddress: u64,
+    pub entryPoint: u64,
+    pub sizeOfModule: u64,
+    pub name: String,
+    pub loadCount: u16,
+}
+
+#[derive(Debug, Clone)]
+pub struct WinProc {
+    pub process: u64,
+    pub physProcess: u64,
+    pub dirBase: u64,
+    pub pid: u64,
+    pub name: String,
+}
+
 pub struct VMBinding {
-    kernelEntry: u64,
-    cachedKernelExports: HashMap<String, WinExport>,
-    ctx: WinCtx,
-    offsets: Option<Offsets>,
+    pub ntKernelEntry: u64,
+    pub ntVersion: u16,
+    pub ntBuild: u32,
+    pub initialProcess: WinProc,
+    pub cachedNtExports: HashMap<String, WinExport>,
+    pub process: ProcessData,
+    pub offsets: Option<Offsets>,
 }

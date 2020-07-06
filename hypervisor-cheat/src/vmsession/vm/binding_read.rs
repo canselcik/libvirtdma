@@ -1,4 +1,4 @@
-use crate::vmsession::vm::{VMBinding, PAGE_OFFSET_SIZE, PMASK};
+use crate::vmsession::vm::{ProcessData, VMBinding, PAGE_OFFSET_SIZE, PMASK};
 use std::iter::FromIterator;
 use std::mem::size_of;
 
@@ -9,9 +9,10 @@ impl VMBinding {
 
     pub fn read_physical<T>(&self, address: u64) -> T {
         let mut ret: T = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+        let procdata = &self.process as *const ProcessData as u64;
         unsafe {
             vmread_sys::MemRead(
-                &self.ctx.process,
+                procdata as *const _,
                 &mut ret as *mut T as u64,
                 address,
                 size_of::<T>() as u64,
@@ -61,11 +62,17 @@ impl VMBinding {
     }
 
     fn _getvmem(&self, dirbase: Option<u64>, local_begin: u64, begin: u64, end: u64) -> i64 {
+        let procdata = &self.process as *const ProcessData as u64;
         let len = end - begin;
         if len <= 8 {
-            let data = match dirbase {
-                Some(d) => unsafe { vmread_sys::VMemReadU64(&self.ctx.process, d, begin) },
-                None => unsafe { vmread_sys::MemReadU64(&self.ctx.process, begin) },
+            let data = unsafe {
+                vmread_sys::MemReadU64(
+                    procdata as *const _,
+                    match dirbase {
+                        Some(d) => self.native_translate(d, begin),
+                        None => begin,
+                    },
+                )
             };
             let bit64: [u8; 8] = data.to_le_bytes();
             let slice =
@@ -78,11 +85,16 @@ impl VMBinding {
         if len <= 0 {
             return -2;
         }
-        let mut res: i64 = match dirbase {
-            Some(d) => unsafe {
-                vmread_sys::VMemRead(&self.ctx.process, d, local_begin, begin, len)
-            },
-            None => unsafe { vmread_sys::MemRead(&self.ctx.process, local_begin, begin, len) },
+        let mut res: i64 = unsafe {
+            vmread_sys::MemRead(
+                procdata as *const _,
+                local_begin,
+                match dirbase {
+                    Some(d) => unsafe { self.native_translate(d, begin) },
+                    None => begin,
+                },
+                len,
+            )
         };
         if res < 0 {
             let chunksize = len / 2;

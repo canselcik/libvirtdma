@@ -47,6 +47,9 @@ sa::const_assert!(std::mem::size_of::<heap_entry::HEAP_ENTRY>() == 0x10);
 // 0x2c0 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64
 sa::const_assert!(std::mem::size_of::<heap_entry::HEAP>() == 0x2c0);
 
+// 0xa0 bytes (sizeof) on  Windows 10 | 2016 1809 Redstone 5 (October Update) x64
+sa::const_assert!(std::mem::size_of::<ethread::KldrDataTableEntry>() == 0xa0);
+
 #[derive(Clone, Copy, Debug)]
 pub struct Offsets {
     pub apl: i64,

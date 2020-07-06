@@ -1,5 +1,7 @@
+#![allow(dead_code)]
 use crate::vmsession::win::list_entry::{ListEntry, SingleListEntry};
 use crate::vmsession::win::misc::*;
+use crate::vmsession::win::unicode_string::UnicodeString;
 
 pub const KTHREAD_THREAD_LIST_OFFSET: u64 = 0x2f8;
 pub const ETHREAD_THREAD_LIST_OFFSET: u64 = 0x6a8;
@@ -152,4 +154,30 @@ pub struct ETHREAD {
     pub OwnerEntryListHead: ListEntry, //0x7e8
     pub DisownedOwnerEntryListLock: u64, //0x7f8
     pub DisownedOwnerEntryListHead: ListEntry, //0x800
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct KldrDataTableEntry {
+    pub InLoadOrderLinks: ListEntry, //0x0
+    pub ExceptionTable: u64,         //0x10 void*
+    pub ExceptionTableSize: u32,     //0x18
+    pub GpValue: u64,                //0x20 void*
+    pub NonPagedDebugInfo: u64,      //0x28 _NON_PAGED_DEBUG_INFO*
+    pub DllBase: u64,                //0x30 void*
+    pub EntryPoint: u64,             //0x38 void*
+    pub SizeOfImage: u32,            //0x40
+    pub FullDllName: UnicodeString,  //0x48
+    pub BaseDllName: UnicodeString,  //0x58
+    pub Flags: u32,                  //0x68
+    pub LoadCount: u16,              //0x6c
+    pub SignatureLevelAndType: u16,  //0x6e
+    pub SectionPointer: u64,         //0x70 void*
+    pub CheckSum: u32,               //0x78
+    pub CoverageSectionSize: u32,    //0x7c
+    pub CoverageSection: u64,        //0x80 void*
+    pub LoadedImports: u64,          //0x88 void*
+    pub Spare: u64,                  //0x90 void*
+    pub SizeOfImageNotRounded: u32,  //0x98
+    pub TimeDateStamp: u32,          //0x9c
 }

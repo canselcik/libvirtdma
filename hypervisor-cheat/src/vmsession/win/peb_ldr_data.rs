@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::vmsession::vm::VMBinding;
 use crate::vmsession::win::list_entry::ListEntry;
 use crate::vmsession::win::unicode_string::UnicodeString;

@@ -77,11 +77,12 @@ fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
         println!("Usage: kmod_to_file EasyAntiCheat.sys");
         return;
     }
-    match vm.find_kmod(&cmd[1]) {
+    let name = &cmd[1];
+    match vm.find_kmod(name) {
         Some(eac) => match vm.dump_kmod_vmem(&eac) {
             Err(e) => println!("Unable to read kernel module memory: {}", e),
-            Ok(mem) => match std::fs::write(eac.name.clone(), &mem) {
-                Ok(_) => println!("Module dumped to {}", eac.name),
+            Ok(mem) => match std::fs::write(name, &mem) {
+                Ok(_) => println!("Module dumped to {}", name),
                 Err(e) => println!("Unable to write file: {}", e.to_string()),
             },
         },
@@ -204,13 +205,6 @@ fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
 //     }
 // }
 
-fn inspect(_vm: &VMBinding, info: &mut ProcKernelInfo) {
-    println!(
-        "Inspecting process with PID {}...",
-        info.eprocess.UniqueProcessId
-    );
-}
-
 fn show_usage() {
     println!(
         r#"
@@ -218,12 +212,12 @@ Process Context Commands:
     pmemread              read $2 bytes from PVA $1
     eprocess              show full EPROCESS for the open process [or process with PID $1]
     peb                   print the full PEB of the open process
+    pinspect              inspect process named
     tebs
     threads
     loader
     modules
     heaps
-    inspect
 
 General Context Commands:
     openpid               enter process context for PID $1
@@ -233,7 +227,7 @@ General Context Commands:
 
     close                 leave the process context 
 
-    listproc              list all running processes
+    listproc              list all running processes (walk eprocess)
     listprocs
     listprocess           
     listprocesses
@@ -245,17 +239,11 @@ General Context Commands:
     kernelexports
     kexports
 
-General List Commands:
-    walk_eprocess:        iterates over kernel eprocess entry list
-
 Legacy Commands:
     rust:                 runs the rust subroutine
     kmod_to_file:         dump kernel module with the name $1 to disk
-
     memread:              read $2 bytes of physical memory from $1
     mem2file              read $2 bytes of physical memory from $1 to $3
-    list_process_modules
-    pinspect:             inspect process named $1
 
 Other Commands:
     quit | exit:          exit the program
@@ -269,9 +257,11 @@ fn dispatch_commands(
     context: &mut Option<ProcKernelInfo>,
 ) -> Option<DispatchCommandReturnAction> {
     match parts[0].as_ref() {
-        "winexports" | "kernelexports" | "kexports" => vm.list_kernel_procs(),
+        // TODO: Bring back rust experiment support
+        // "rust" => rust_routine(vm.as_mut()),
+        "winexports" | "kernelexports" | "kexports" => vm.list_kernel_exports(),
         "listkmod" | "listkmods" => vm.list_kmods(),
-        "listproc" | "listprocs" | "listprocess" | "listprocesses" => vm.list_processes(),
+        "listproc" | "listprocs" | "listprocess" | "listprocesses" => vm.list_processes(true),
         "close" => {
             return match context {
                 None => {
@@ -287,18 +277,6 @@ fn dispatch_commands(
                 }
             }
         }
-        "inspect" => {
-            return match context {
-                None => {
-                    println!("'inspect' command requires being in a process context");
-                    None
-                }
-                Some(proc) => {
-                    inspect(&vm, proc);
-                    None
-                }
-            }
-        }
         "openpid" => {
             if parts.len() != 2 {
                 println!("usage: openpid <PID>");
@@ -310,7 +288,7 @@ fn dispatch_commands(
                         return None;
                     }
                 };
-                return match vm.eprocess_for_pid(pid) {
+                return match vm.find_process_by_pid(pid, true) {
                     None => {
                         println!("Unable to find a kernel EPROCESS entry for PID {}", pid);
                         None
@@ -323,21 +301,12 @@ fn dispatch_commands(
             if parts.len() != 2 {
                 println!("usage: openprocess <ProcessName>");
             } else {
-                return match vm.find_process(&parts[1]) {
+                return match vm.find_process_by_name(&parts[1], true) {
                     None => {
                         println!("Unable to find a process with name '{}'", &parts[1]);
                         None
                     }
-                    Some(proc) => match vm.eprocess_for_pid(proc.pid) {
-                        None => {
-                            println!(
-                                "Unable to find a kernel EPROCESS entry for PID {}",
-                                proc.pid,
-                            );
-                            None
-                        }
-                        Some(info) => Some(DispatchCommandReturnAction::EnterProcessContext(info)),
-                    },
+                    Some(info) => Some(DispatchCommandReturnAction::EnterProcessContext(info)),
                 };
             }
         }
@@ -413,49 +382,12 @@ fn dispatch_commands(
             None => println!("usage: heaps (after entering a process context"),
         },
         "modules" => match context {
-            Some(info) => {
-                let peb =
-                    vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
-                let loader =
-                    peb.read_loader_with_dirbase(&vm, info.eprocess.Pcb.DirectoryTableBase);
-                let first_link = loader.InLoadOrderModuleList.Flink;
-                let mut module = loader.getFirstInLoadOrderModuleListWithDirbase(
-                    &vm,
-                    info.eprocess.Pcb.DirectoryTableBase,
-                );
-                loop {
-                    if module.is_none() {
-                        break;
-                    }
-                    let m = module.unwrap();
-                    if m.InLoadOrderModuleList.Flink == first_link {
-                        break;
-                    }
-                    let name = match m.BaseDllName.resolve(
-                        &vm,
-                        Some(info.eprocess.Pcb.DirectoryTableBase),
-                        Some(512),
-                    ) {
-                        Some(n) => n,
-                        None => "unknown".to_string(),
-                    };
-                    let typ = if m.BaseAddress == peb.ImageBaseAddress {
-                        "BASE"
-                    } else {
-                        "LOADED"
-                    };
-                    println!(
-                        "  {} MODULE {}: [baseAddr=0x{:x}, len=0x{:x}]",
-                        typ, name, m.BaseAddress, m.SizeOfImage,
-                    );
-
-                    module = m.getNextInLoadOrderModuleListWithDirbase(
-                        &vm,
-                        Some(info.eprocess.Pcb.DirectoryTableBase),
-                    );
-                }
-            }
+            Some(info) => vm.list_process_modules(info),
             None => println!("usage: modules (after entering a process context"),
+        },
+        "pinspect" => match context {
+            Some(info) => vm.pinspect(info),
+            None => println!("usage: pinspect (after entering a process context"),
         },
         "eprocess" => {
             let pid = if parts.len() != 2 && context.is_none() {
@@ -472,7 +404,7 @@ fn dispatch_commands(
                     }
                 }
             };
-            match vm.eprocess_for_pid(pid) {
+            match vm.find_process_by_pid(pid, true) {
                 None => println!("Unable to find a kernel EPROCESS entry for PID {}", pid),
                 Some(info) => {
                     println!(
@@ -548,8 +480,6 @@ fn dispatch_commands(
                 };
             }
         }
-        "walk_eprocess" => vm.walk_eprocess(),
-        // "rust" => rust_routine(vm.as_mut()),
         "quit" | "exit" => std::process::exit(0),
         "kmod_to_file" => kmod_to_file(&vm, &parts),
         "memread" => {
@@ -574,26 +504,6 @@ fn dispatch_commands(
                     Some(data) => hexdump::hexdump(&data),
                     None => println!("Unable to read memory"),
                 };
-            }
-        }
-        "list_process_modules" => {
-            if parts.len() != 2 {
-                println!("Usage: list_process_modules explorer.exe")
-            } else {
-                match vm.find_process(&parts[1]) {
-                    None => println!("Unable to find a process with matching name"),
-                    Some(mut proc) => vm.list_process_modules(&mut proc),
-                }
-            }
-        }
-        "pinspect" => {
-            if parts.len() != 2 {
-                println!("Usage: list_process_sections explorer.exe")
-            } else {
-                match vm.find_process(&parts[1]) {
-                    None => println!("Unable to find a process with matching name"),
-                    Some(mut proc) => vm.pinspect(&mut proc),
-                }
             }
         }
         "help" | "usage" => show_usage(),

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::vmsession::proc_kernelinfo::ProcKernelInfo;
 use crate::vmsession::vm::{VMBinding, WinExport};
 use crate::vmsession::win::eprocess::EPROCESS;
@@ -11,13 +12,13 @@ use std::collections::HashMap;
 use std::mem::size_of;
 
 impl VMBinding {
-    pub fn list_kernel_procs(&self) {
+    pub fn list_kernel_exports(&self) {
         for (sname, rec) in self.cachedNtExports.iter() {
             println!("KernelExport @ 0x{:x}\t{}", rec.address, sname);
         }
     }
 
-    pub fn find_kernel_proc(&self, name: &str) -> Option<u64> {
+    pub fn find_kernel_export(&self, name: &str) -> Option<u64> {
         match self.cachedNtExports.get(name) {
             None => None,
             Some(export) => Some(export.address),
@@ -141,10 +142,10 @@ impl VMBinding {
         return res;
     }
 
-    pub fn get_eprocess_entries(&self, pid_filter: Option<u64>) -> HashMap<u64, ProcKernelInfo> {
+    pub fn get_processes(&self, require_alive: bool) -> HashMap<u64, ProcKernelInfo> {
         let mut m: HashMap<u64, ProcKernelInfo> = HashMap::new();
-        let mut curProc = self.initialProcess.physProcess;
-        let mut virtProcess = self.initialProcess.process;
+        let mut curProc = self.initialProcess.eprocessAddr;
+        let mut virtProcess = self.initialProcess.eprocessVA;
         loop {
             let eprocess: EPROCESS = self.read_physical(curProc);
             if eprocess.UniqueProcessId == 0 {
@@ -162,17 +163,20 @@ impl VMBinding {
             } else if eprocess.Pcb.StackCount < 1 {
                 // println!("Skipping EPROCESS entry due to due to StackCount = 0");
             } else {
-                if pid_filter.is_none() || pid_filter.unwrap() == eprocess.UniqueProcessId {
-                    let peb = self.get_full_peb(eprocess.Pcb.DirectoryTableBase, curProc);
-                    let ldr = peb.read_loader_with_dirbase(&self, dirbase);
-                    let base_module_name =
-                        match ldr.getFirstInMemoryOrderModuleListWithDirbase(&self, dirbase) {
-                            None => eprocess.ImageFileName.iter().map(|b| *b as char).join(""),
-                            Some(m) => m
-                                .BaseDllName
-                                .resolve(&self, Some(dirbase), Some(512))
-                                .unwrap_or("unknown".to_string()),
-                        };
+                let peb = self.get_full_peb(eprocess.Pcb.DirectoryTableBase, curProc);
+                let ldr = peb.read_loader_with_dirbase(&self, dirbase);
+                let base_module_name =
+                    match ldr.getFirstInMemoryOrderModuleListWithDirbase(&self, dirbase) {
+                        None => eprocess.ImageFileName.iter().map(|b| *b as char).join(""),
+                        Some(m) => m
+                            .BaseDllName
+                            .resolve(&self, Some(dirbase), Some(512))
+                            .unwrap_or("unknown".to_string()),
+                    };
+                // Liveness check
+                let pe_magic: [u8; 2] = self.vread(dirbase, peb.ImageBaseAddress);
+                let valid_pe = pe_magic[0] == 'M' as u8 && pe_magic[1] == 'Z' as u8;
+                if valid_pe || !require_alive {
                     m.insert(
                         eprocess.UniqueProcessId,
                         ProcKernelInfo::new(&base_module_name, eprocess, virtProcess, curProc),
@@ -192,27 +196,14 @@ impl VMBinding {
                 println!("Returning early from walking EPROCESS list due to CURPROC == 0");
                 break;
             }
-            if curProc == self.initialProcess.physProcess
-                || virtProcess == self.initialProcess.process
+            if curProc == self.initialProcess.eprocessAddr
+                || virtProcess == self.initialProcess.eprocessVA
             {
                 // println!("Completed walking kernel EPROCESS list");
                 break;
             }
         }
         return m;
-    }
-
-    pub fn walk_eprocess(&self) {
-        for (pid, info) in self.get_eprocess_entries(None).iter() {
-            println!(
-                "EPROCESS[pid={}, name={}, virtual=0x{:x}, phys=0x{:x}, activeThreads={}]",
-                pid,
-                info.name,
-                info.eprocessVirtAddr,
-                info.eprocessPhysAddr,
-                info.eprocess.ActiveThreads,
-            );
-        }
     }
 
     pub fn threads_from_eprocess(&self, info: &ProcKernelInfo) -> Vec<ETHREAD> {
@@ -238,13 +229,5 @@ impl VMBinding {
             }
         }
         return threads;
-    }
-
-    pub fn eprocess_for_pid(&self, pid: u64) -> Option<ProcKernelInfo> {
-        let procs = self.get_eprocess_entries(Some(pid));
-        match procs.get(&pid) {
-            Some(r) => Some(r.clone()),
-            None => None,
-        }
     }
 }

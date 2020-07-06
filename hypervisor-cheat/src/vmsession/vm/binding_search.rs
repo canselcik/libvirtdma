@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::vmsession::vm::VMBinding;
 use memmem::Searcher;
 use regex::bytes::Regex;

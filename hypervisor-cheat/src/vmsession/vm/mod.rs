@@ -44,8 +44,8 @@ pub struct WinModule {
 
 #[derive(Debug, Clone)]
 pub struct WinProc {
-    pub process: u64,
-    pub physProcess: u64,
+    pub eprocessVA: u64,
+    pub eprocessAddr: u64,
     pub dirBase: u64,
     pub pid: u64,
     pub name: String,
@@ -55,6 +55,7 @@ pub struct VMBinding {
     pub ntKernelEntry: u64,
     pub ntVersion: u16,
     pub ntBuild: u32,
+    pub ntKernelModulebase: u64,
     pub initialProcess: WinProc,
     pub cachedNtExports: HashMap<String, WinExport>,
     pub process: ProcessData,

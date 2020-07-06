@@ -5,7 +5,10 @@ use byteorder::ByteOrder;
 use itertools::Itertools;
 use nix::fcntl::open;
 use nix::unistd::close;
-use pelite::image::{IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS32};
+use pelite::image::{
+    IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS32, IMAGE_NT_OPTIONAL_HDR32_MAGIC,
+    IMAGE_NT_OPTIONAL_HDR64_MAGIC,
+};
 use pelite::pe64::image::{IMAGE_NT_HEADERS, IMAGE_NT_HEADERS_SIGNATURE};
 use proc_maps::{MapRange, Pid};
 use regex::bytes::Regex;
@@ -19,6 +22,7 @@ impl VMBinding {
             offsets: None,
             cachedNtExports: HashMap::new(),
             ntKernelEntry: 0,
+            ntKernelModulebase: 0,
             ntVersion: 0,
             ntBuild: 0,
             process: match Self::create_process_data() {
@@ -26,8 +30,8 @@ impl VMBinding {
                 Some(s) => s,
             },
             initialProcess: WinProc {
-                process: 0,
-                physProcess: 0,
+                eprocessVA: 0,
+                eprocessAddr: 0,
                 dirBase: 0,
                 pid: 0,
                 name: "".to_string(),
@@ -44,6 +48,7 @@ impl VMBinding {
                     Some((ntk, kexports)) => {
                         println!("NTKernel ModuleBase @ 0x{:x}", ntk);
                         println!("Found {} kernel exports", kexports.len());
+                        binding.ntKernelModulebase = ntk;
                         // Less than ideal but we do it once. Better than having optionals or mutexes everywhere
                         for (k, v) in kexports.iter() {
                             binding.cachedNtExports.insert(k.clone(), v.clone());
@@ -63,15 +68,15 @@ impl VMBinding {
             None => return None,
         };
 
-        let initProcAddr = match binding.find_kernel_proc("PsInitialSystemProcess") {
+        let initProcAddr = match binding.find_kernel_export("PsInitialSystemProcess") {
             Some(0) | None => return None,
             Some(addr) => addr,
         };
-        binding.initialProcess.process =
+        binding.initialProcess.eprocessVA =
             binding.vread(binding.initialProcess.dirBase, initProcAddr);
-        binding.initialProcess.physProcess = binding.native_translate(
+        binding.initialProcess.eprocessAddr = binding.native_translate(
             binding.initialProcess.dirBase,
-            binding.initialProcess.process,
+            binding.initialProcess.eprocessVA,
         );
 
         binding.ntVersion = binding.get_nt_version();
@@ -169,7 +174,7 @@ impl VMBinding {
     }
 
     fn get_nt_version(&self) -> u16 {
-        let getVersion = match self.find_kernel_proc("RtlGetVersion") {
+        let getVersion = match self.find_kernel_export("RtlGetVersion") {
             Some(0) | None => return 0,
             Some(addr) => addr,
         };
@@ -201,7 +206,7 @@ impl VMBinding {
     }
 
     fn get_nt_build(&self) -> u32 {
-        let getVersion = match self.find_kernel_proc("RtlGetVersion") {
+        let getVersion = match self.find_kernel_export("RtlGetVersion") {
             Some(0) | None => return 0,
             Some(addr) => addr,
         };
@@ -290,16 +295,20 @@ impl VMBinding {
         if ntHeader.Signature != IMAGE_NT_HEADERS_SIGNATURE {
             return None;
         }
-        match ntHeader.OptionalHeader.Magic {
-            IMAGE_NT_OPTIONAL_HDR64_MAGIC => Some((NtHeaders::Bit64(ntHeader), ntHeaderAddr)),
-            IMAGE_NT_OPTIONAL_HDR32_MAGIC => Some((
+
+        let magic = ntHeader.OptionalHeader.Magic;
+        if magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC {
+            Some((NtHeaders::Bit64(ntHeader), ntHeaderAddr))
+        } else if magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC {
+            Some((
                 NtHeaders::Bit32({
                     let nth: IMAGE_NT_HEADERS32 = self.vread(dirbase, ntHeaderAddr);
                     nth
                 }),
                 ntHeaderAddr,
-            )),
-            _ => None,
+            ))
+        } else {
+            None
         }
     }
 

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::vmsession::vm::VMBinding;
 
 #[repr(C)]
@@ -66,13 +67,10 @@ impl ListEntry {
         vm: &VMBinding,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
-        if self.Flink == 0 {
-            return None;
-        }
-        Some(
-            vm.read_physical(
-                vm.initialProcess.dirBase + self.Flink - listEntryOffsetInTargetStruct,
-            ),
+        self.getNextWithDirbase(
+            vm,
+            Some(vm.initialProcess.dirBase),
+            listEntryOffsetInTargetStruct,
         )
     }
 
@@ -97,13 +95,10 @@ impl ListEntry {
         vm: &VMBinding,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
-        if self.Blink == 0 {
-            return None;
-        }
-        Some(
-            vm.read_physical(
-                vm.initialProcess.dirBase + self.Blink - listEntryOffsetInTargetStruct,
-            ),
+        self.getPreviousWithDirbase(
+            vm,
+            Some(vm.initialProcess.dirBase),
+            listEntryOffsetInTargetStruct,
         )
     }
 

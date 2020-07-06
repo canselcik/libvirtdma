@@ -90,7 +90,7 @@ impl VMBinding {
                 procdata as *const _,
                 local_begin,
                 match dirbase {
-                    Some(d) => unsafe { self.native_translate(d, begin) },
+                    Some(d) => self.native_translate(d, begin),
                     None => begin,
                 },
                 len,

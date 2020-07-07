@@ -337,6 +337,18 @@ impl VMBinding {
         println!("{}", table.render());
     }
 
+    pub fn get_process_modules_map(&self, info: &ProcKernelInfo) -> HashMap<String, LdrModule> {
+        let mut map: HashMap<String, LdrModule> = HashMap::new();
+        let dirbase = info.eprocess.Pcb.DirectoryTableBase;
+        let mut idx = 0usize;
+        for module in self.get_process_modules(info).drain(0..){
+            let name = module.BaseDllName.resolve(&self, Some(dirbase), Some(255)).unwrap_or(format!("unknown@{}", idx));
+            map.insert(name, module);
+            idx += 1;
+        }
+        map
+    }
+
     pub fn get_process_modules(&self, info: &ProcKernelInfo) -> Vec<LdrModule> {
         let peb = self.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
         let loader = peb.read_loader_with_dirbase(&self, info.eprocess.Pcb.DirectoryTableBase);

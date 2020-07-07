@@ -4,6 +4,8 @@ use hypervisor::proc_kernelinfo::ProcKernelInfo;
 use hypervisor::vm::VMBinding;
 use hypervisor::win::teb::TEB;
 use linefeed::{Interface, ReadResult};
+use hypervisor::win::peb_ldr_data::LdrModule;
+use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager, LastObjectBase};
 
 mod rust_structs;
 
@@ -62,120 +64,120 @@ fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
     };
 }
 
-// fn rust_unity_player_module(
-//     vm: &mut VMBinding,
-//     rust: &mut WinProcess,
-//     unityPlayerModule: &mut WinDll,
-// ) {
-//     let all = vm
-//         .dump_process_vmem(rust, &unityPlayerModule.info)
-//         .expect("failed to read");
-//
-//     match VMBinding::pmemmem(
-//         &all,
-//         "488905????????4883c438c348c705????????????????4883c438c3cccccccccc48",
-//     ) {
-//         Ok(res) => {
-//             if res.len() != 1 {
-//                 println!(
-//                     "Found {} matches for GameObjectManager instead of 1",
-//                     res.len()
-//                 );
-//                 return;
-//             }
-//             // UInt64 taggedObjects = m.read<UInt64>(GOM + 0x8);
-//             // UInt64 gameObject = m.read<UInt64>(taggedObjects + 0x10);
-//             let gomsig_offset: u64 = *res.get(0).unwrap() as u64;
-//             let gomsig_addr = unityPlayerModule.info.baseAddress + gomsig_offset;
-//             println!(
-//                 "gomsig found at 0x{:x} (in proc space: 0x{:x})",
-//                 gomsig_offset, gomsig_addr,
-//             );
-//             match vm.find_module_from_addr(&rust.module_list, gomsig_addr) {
-//                 Some(m) => println!("gomsig falls into {}", m.name),
-//                 None => println!("gomsig fall into any module"),
-//             };
-//
-//             let offsetA: i32 = rust.read(&vm.native_ctx, gomsig_addr + 3);
-//             let gom_addr_offset =
-//                 gomsig_addr + 7 - unityPlayerModule.info.baseAddress + offsetA as u64;
-//             let gom_addr = unityPlayerModule.info.baseAddress + gom_addr_offset;
-//
-//             assert_eq!(unityPlayerModule.info.baseAddress + 0x17a6ad8, gom_addr);
-//
-//             println!(
-//                 "gomaddr in proc space: 0x{:x} (offset: 0x{:x})",
-//                 gom_addr, gom_addr_offset,
-//             );
-//             match vm.find_module_from_addr(&rust.module_list, gom_addr) {
-//                 Some(m) => println!("gom falls into {}", m.name),
-//                 None => println!("gom doesnt fall into any module"),
-//             };
-//
-//             let gomdata: [u8; 0x20] = rust.read(&vm.native_ctx.clone(), gom_addr);
-//             let gom: GameObjectManager = unsafe { std::mem::transmute(gomdata) };
-//
-//             println!("GOM: {:#?}", gom);
-//             hexdump::hexdump(&gomdata);
-//
-//             let lto: LastObjectBase =
-//                 rust.read(&vm.native_ctx.clone(), gom.lastTaggedObject as u64);
-//             println!("LTO: {:#?}", lto);
-//         }
-//         Err(e) => println!("Error while searching GOM: {}", e),
-//     };
-// }
-//
-// fn rust_game_assembly_module(
-//     vm: &mut VMBinding,
-//     rust: &mut WinProcess,
-//     gameAssemblyModule: &mut WinDll,
-// ) {
-//     /* possible patterns:
-//          BaseNetworkable: 488b05????????488b88????????488b094885c974????33c08bd5
-//          CanAttack: E8????????488B8F????????0FB6F0
-//          CreateProjectile: 48895C24??48896C24??48897424??48897C24??41564883EC50803D??????????498BD9498BE8
-//          SendProjectileAttack: E8????????F20F1083????????F20F1183????????8B83????????8983????????80BB??????????
-//     */
-//     let bnaddr = gameAssemblyModule.info.baseAddress + 0x28861B0;
-//
-//     match vm.find_module_from_addr(&rust.module_list, bnaddr) {
-//         Some(m) => println!("BN falls into {}", m.name),
-//         None => println!("BN doesnt into any module"),
-//     };
-//     let networkable: [u8; std::mem::size_of::<BaseNetworkable>()] =
-//         rust.read(&vm.native_ctx.clone(), bnaddr);
-//     hexdump::hexdump(&networkable);
-//
-//     let nb: BaseNetworkable = unsafe { std::mem::transmute(networkable) };
-//     println!("BaseNetworkable: {:#?}", nb);
-//
-//     let parentData: [u8; std::mem::size_of::<EntityRef>()] = rust.read(
-//         &vm.clone(),
-//         nb.parentEntityRef + gameAssemblyModule.info.baseAddress,
-//     );
-//
-//     let eref: EntityRef = unsafe { std::mem::transmute(parentData) };
-//     println!("EREF: {:#?}", eref);
-// }
-//
-// fn rust_routine(vm: &mut VMBinding) {
-//     match vm.find_process("RustClient.exe", false, true, true) {
-//         Some(mut rust) => {
-//             println!("Found RustClient.exe");
-//             rust.refresh_modules(vm.native_ctx.clone());
-//             let mut modules = rust.module_list.clone();
-//             for module in modules.iter_mut() {
-//                 match module.name.as_ref() {
-//                     "UnityPlayer.dll" => rust_unity_player_module(vm, &mut rust, module),
-//                     "GameAssembly.dll" => rust_game_assembly_module(vm, &mut rust, module),
-//                     _ => {}
-//                 }
-//             }
-//         }
-//         None => println!("Unable to find RustClient.exe"),
-//     }
-// }
+fn rust_unity_player_module(
+    vm: &VMBinding,
+    rust: &mut ProcKernelInfo,
+    unity_player: &LdrModule,
+) {
+    let rust_dirbase = rust.eprocess.Pcb.DirectoryTableBase;
+    let module_mem = match vm.dump_module_vmem(rust_dirbase, unity_player) {
+        Err(e) => {
+            println!("Failed to dump memory of UnityPlayer.dll: {}", e);
+            return;
+        }
+        Ok(m) => m,
+    };
+
+    let matches = match VMBinding::pmemmem(
+        &module_mem,
+        "488905????????4883c438c348c705????????????????4883c438c3cccccccccc48",
+    ) {
+        Err(e) => {
+            println!("Failed to find a match for the GOM signature: {}", e);
+            return;
+        },
+        Ok(o) => o,
+    };
+    let gomsig_offset: u64 = if matches.len() != 1 {
+        println!(
+            "Found {} matches for GameObjectManager instead of 1",
+            matches.len()
+        );
+        return;
+    } else {
+        *matches.get(0).unwrap() as u64
+    };
+
+    // UInt64 taggedObjects = m.read<UInt64>(GOM + 0x8);
+    // UInt64 gameObject = m.read<UInt64>(taggedObjects + 0x10);
+    let gomsig_addr = unity_player.BaseAddress + gomsig_offset;
+    println!(
+        "gomsig found at 0x{:x} (in proc space: 0x{:x})",
+        gomsig_offset, gomsig_addr,
+    );
+
+    let offsetA: i32 = vm.vread(rust_dirbase, gomsig_addr + 3);
+    let gom_addr_offset =
+        gomsig_addr + 7 - unity_player.BaseAddress + offsetA as u64;
+    let gom_addr = unity_player.BaseAddress + gom_addr_offset;
+
+    assert_eq!(unity_player.BaseAddress + 0x17a6ad8, gom_addr);
+
+    println!(
+        "gomaddr in proc space: 0x{:x} (offset: 0x{:x})",
+        gom_addr, gom_addr_offset,
+    );
+
+    let gom: GameObjectManager = vm.vread(rust_dirbase, gom_addr);
+    println!("GOM: {:#?}", gom);
+
+    let lto: LastObjectBase = vm.vread(rust_dirbase, gom.lastTaggedObject as u64);
+    println!("LTO: {:#?}", lto);
+}
+
+fn rust_game_assembly_module(
+    vm: &VMBinding,
+    rust: &mut ProcKernelInfo,
+    game_assembly: &LdrModule,
+) {
+    /* possible patterns:
+         BaseNetworkable: 488b05????????488b88????????488b094885c974????33c08bd5
+         CanAttack: E8????????488B8F????????0FB6F0
+         CreateProjectile: 48895C24??48896C24??48897424??48897C24??41564883EC50803D??????????498BD9498BE8
+         SendProjectileAttack: E8????????F20F1083????????F20F1183????????8B83????????8983????????80BB??????????
+    */
+    let bnaddr = game_assembly.BaseAddress + 0x28861B0;
+    let dirbase = rust.eprocess.Pcb.DirectoryTableBase;
+    let nb: BaseNetworkable = vm.vread(dirbase, bnaddr);
+    println!("BaseNetworkable: {:#?}", nb);
+
+    let erefaddr = game_assembly.BaseAddress + nb.parentEntityRef;
+    let eref: EntityRef = vm.vread(dirbase, erefaddr);
+    println!("EREF: {:#?}", eref);
+}
+
+fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
+    if !"RustClient.exe".eq(&rust.name){
+        println!("The current open process is not called RustClient.exe");
+        return;
+    }
+
+    let modules = vm.get_process_modules_map(&rust);
+    let unity_player = match modules.get("UnityPlayer.dll") {
+        Some(up) => up,
+        None => {
+            println!("Unable to find UnityPlayer.dll module in RustClient.exe");
+            return;
+        }
+    };
+    let game_assembly = match modules.get("GameAssembly.dll") {
+        Some(up) => up,
+        None => {
+            println!("Unable to find GameAssembly.dll module in GameAssembly.exe");
+            return;
+        }
+    };
+
+    println!("Found UnityPlayer.dll at 0x{:x}", unity_player.BaseAddress);
+    println!("Found GameAssembly.dll at 0x{:x}", game_assembly.BaseAddress);
+
+
+    println!("Processing UnityPlayer.dll module...");
+    rust_unity_player_module(vm, rust, &unity_player);
+
+    println!("Processing GameAssembly.dll module...");
+    rust_game_assembly_module(vm, rust, &game_assembly);
+}
 
 fn show_usage() {
     println!(
@@ -230,7 +232,10 @@ fn dispatch_commands(
 ) -> Option<DispatchCommandReturnAction> {
     match parts[0].as_ref() {
         // TODO: Bring back rust experiment support
-        // "rust" => rust_routine(vm.as_mut()),
+        "rust" => match context {
+            Some(info) => rust_routine(vm, info),
+            None => println!("usage: rust (after entering a process context)"),
+        },
         "winexports" | "kernelexports" | "kexports" => vm.list_kernel_exports(),
         "listkmod" | "listkmods" => vm.list_kmods(),
         "listproc" | "listprocs" | "listprocess" | "listprocesses" => vm.list_processes(true),

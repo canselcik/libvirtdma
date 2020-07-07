@@ -8,15 +8,15 @@ use crate::win::unicode_string::UnicodeString;
 #[derive(Debug, Copy, Clone)]
 #[allow(non_snake_case)]
 pub struct PebLdrData {
-    pub(crate) Length: u32,                                // 0x0
-    pub(crate) Initialized: u32,                           // 0x4
-    pub(crate) SsHandle: u64,                              // 0x8 ptr
-    pub(crate) InLoadOrderModuleList: ListEntry,           // 0x10
-    pub(crate) InMemoryOrderModuleList: ListEntry,         // 0x20
-    pub(crate) InInitializationOrderModuleList: ListEntry, // 0x30
-    pub(crate) EntryInProgress: u64,                       // 0x40 ptr
-    pub(crate) ShutdownInProgress: u32,                    // 0x48
-    pub(crate) ShutdownThreadId: u64,                      // 0x50 ptr
+    pub Length: u32,                                // 0x0
+    pub Initialized: u32,                           // 0x4
+    pub SsHandle: u64,                              // 0x8 ptr
+    pub InLoadOrderModuleList: ListEntry,           // 0x10
+    pub InMemoryOrderModuleList: ListEntry,         // 0x20
+    pub InInitializationOrderModuleList: ListEntry, // 0x30
+    pub EntryInProgress: u64,                       // 0x40 ptr
+    pub ShutdownInProgress: u32,                    // 0x48
+    pub ShutdownThreadId: u64,                      // 0x50 ptr
 }
 
 impl PebLdrData {
@@ -73,19 +73,19 @@ impl PebLdrData {
 #[derive(Debug, Copy, Clone)]
 #[allow(non_snake_case)]
 pub struct LdrModule {
-    pub(crate) InLoadOrderModuleList: ListEntry,
-    pub(crate) InMemoryOrderModuleList: ListEntry,
-    pub(crate) InInitializationOrderModuleList: ListEntry,
-    pub(crate) BaseAddress: u64, // void*
-    pub(crate) EntryPoint: u64,  // void*
-    pub(crate) SizeOfImage: u32,
-    pub(crate) FullDllName: UnicodeString,
-    pub(crate) BaseDllName: UnicodeString,
-    pub(crate) Flags: u32,
-    pub(crate) LoadCount: i16,
-    pub(crate) TlsIndex: i16,
-    pub(crate) HashTableEntry: ListEntry,
-    pub(crate) TimeDateStamp: u32,
+    pub InLoadOrderModuleList: ListEntry,
+    pub InMemoryOrderModuleList: ListEntry,
+    pub InInitializationOrderModuleList: ListEntry,
+    pub BaseAddress: u64, // void*
+    pub EntryPoint: u64,  // void*
+    pub SizeOfImage: u32,
+    pub FullDllName: UnicodeString,
+    pub BaseDllName: UnicodeString,
+    pub Flags: u32,
+    pub LoadCount: i16,
+    pub TlsIndex: i16,
+    pub HashTableEntry: ListEntry,
+    pub TimeDateStamp: u32,
 }
 
 impl LdrModule {

@@ -40,7 +40,7 @@ impl UnicodeString {
             let addr = self.Buffer + offset as u64 * std::mem::size_of::<u16>() as u64;
             let current: u16 = match dirbase {
                 Some(dbase) => vm.vread(dbase, addr),
-                None => vm.read_physical(addr),
+                None => vm.read(addr),
             };
             input.push(current);
         }

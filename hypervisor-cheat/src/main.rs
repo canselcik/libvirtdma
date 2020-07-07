@@ -333,14 +333,12 @@ fn dispatch_commands(
                         println!("You need to enter a context using an open command first");
                         return None;
                     }
-                    Some(proc) => match vm.getvmem(
-                        Some(proc.eprocess.Pcb.DirectoryTableBase),
-                        hVA,
-                        hVA + hSize,
-                    ) {
-                        None => println!("Unable to read memory"),
-                        Some(data) => hexdump::hexdump(&data),
-                    },
+                    Some(proc) => {
+                        match vm.vreadvec(proc.eprocess.Pcb.DirectoryTableBase, hVA, hVA + hSize) {
+                            None => println!("Unable to read memory"),
+                            Some(data) => hexdump::hexdump(&data),
+                        }
+                    }
                 }
             }
         }
@@ -434,7 +432,7 @@ fn dispatch_commands(
                     } else {
                         format!("0x{:x}", thread.CidUniqueThread)
                     };
-                    let teb: TEB = vm.read_physical(
+                    let teb: TEB = vm.read(
                         vm.native_translate(info.eprocess.Pcb.DirectoryTableBase, thread.Tcb.Teb),
                     );
                     println!(
@@ -467,7 +465,7 @@ fn dispatch_commands(
                         return None;
                     }
                 };
-                match vm.getvmem(None, hPA, hPA + hSize) {
+                match vm.readvec(hPA, hPA + hSize) {
                     Some(data) => match std::fs::write(&parts[3], &data) {
                         Ok(_) => println!("{} bytes written to file '{}'", hSize, parts[3]),
                         Err(e) => println!(
@@ -500,7 +498,7 @@ fn dispatch_commands(
                         return None;
                     }
                 };
-                match vm.getvmem(None, hPA, hPA + hSize) {
+                match vm.readvec(hPA, hPA + hSize) {
                     Some(data) => hexdump::hexdump(&data),
                     None => println!("Unable to read memory"),
                 };

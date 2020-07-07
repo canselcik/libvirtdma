@@ -19,11 +19,10 @@ impl SingleListEntry {
         vm: &VMBinding,
         listEntryOffsetInTargetStruct: u64,
     ) -> Option<T> {
-        if self.Next == 0 {
-            return None;
-        }
-        Some(
-            vm.read_physical(vm.initialProcess.dirBase + self.Next - listEntryOffsetInTargetStruct),
+        self.getNextWithDirbase(
+            vm,
+            Some(vm.initialProcess.dirBase),
+            listEntryOffsetInTargetStruct,
         )
     }
 
@@ -36,11 +35,10 @@ impl SingleListEntry {
         if self.Next == 0 {
             return None;
         }
-        let addr = match dirbase {
-            Some(d) => vm.native_translate(d, self.Next - listEntryOffsetInTargetStruct),
-            None => self.Next - listEntryOffsetInTargetStruct,
-        };
-        Some(vm.read_physical(addr))
+        Some(match dirbase {
+            Some(db) => vm.vread(db, self.Next - listEntryOffsetInTargetStruct),
+            None => vm.read(self.Next - listEntryOffsetInTargetStruct),
+        })
     }
 }
 
@@ -87,7 +85,7 @@ impl ListEntry {
             Some(d) => vm.native_translate(d, self.Flink - listEntryOffsetInTargetStruct),
             None => self.Flink - listEntryOffsetInTargetStruct,
         };
-        Some(vm.read_physical(addr))
+        Some(vm.read(addr))
     }
 
     pub fn getPreviousFromKernelInitialProcess<T>(
@@ -115,6 +113,6 @@ impl ListEntry {
             Some(d) => vm.native_translate(d, self.Blink - listEntryOffsetInTargetStruct),
             None => self.Flink - listEntryOffsetInTargetStruct,
         };
-        Some(vm.read_physical(addr))
+        Some(vm.read(addr))
     }
 }

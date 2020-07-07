@@ -141,20 +141,20 @@ impl VMBinding {
     }
 
     pub fn dump_kmod_vmem(&self, module: &KldrDataTableEntry) -> Result<Vec<u8>, i64> {
-        let begin = module.DllBase;
-        let end = begin + module.SizeOfImage as u64;
-        match self.getvmem(Some(self.initialProcess.dirBase), begin, end) {
+        match self.vreadvec(
+            self.initialProcess.dirBase,
+            module.DllBase,
+            module.SizeOfImage as u64,
+        ) {
             None => Err(-1),
-            Some(res) => Ok(res.into_vec()),
+            Some(res) => Ok(res),
         }
     }
 
     pub fn dump_module_vmem(&self, dirbase: u64, module: &LdrModule) -> Result<Vec<u8>, i64> {
-        let begin = module.BaseAddress;
-        let end = begin + module.SizeOfImage as u64;
-        match self.getvmem(Some(dirbase), begin, end) {
+        match self.vreadvec(dirbase, module.BaseAddress, module.SizeOfImage as u64) {
             None => Err(-1),
-            Some(res) => Ok(res.into_vec()),
+            Some(res) => Ok(res),
         }
     }
 

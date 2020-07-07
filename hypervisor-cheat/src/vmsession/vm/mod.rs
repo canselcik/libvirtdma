@@ -1,6 +1,7 @@
 use crate::vmsession::win::Offsets;
 use std::collections::HashMap;
 
+pub mod binding_core;
 pub mod binding_init;
 pub mod binding_porcelain;
 pub mod binding_read;
@@ -9,6 +10,8 @@ pub mod nativebinding;
 
 const PAGE_OFFSET_SIZE: u64 = 12;
 const PMASK: u64 = (!0xfu64 << 8) & 0xfffffffffu64;
+const KFIXC: u64 = 0x80000000;
+const KFIXO: u64 = 0x80000000;
 
 const VMREAD_IOCTL_MAGIC: u8 = 0x42;
 

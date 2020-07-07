@@ -120,7 +120,7 @@ impl VMBinding {
 
     pub fn get_full_peb(&self, dirbase: u64, physProcess: u64) -> FullPEB {
         let peb_offset_from_eprocess = self.offsets.unwrap().peb as u64;
-        let ptr: u64 = self.read_physical(physProcess + peb_offset_from_eprocess);
+        let ptr: u64 = self.read(physProcess + peb_offset_from_eprocess);
         self.vread(dirbase, ptr)
     }
 
@@ -147,7 +147,7 @@ impl VMBinding {
         let mut curProc = self.initialProcess.eprocessAddr;
         let mut virtProcess = self.initialProcess.eprocessVA;
         loop {
-            let eprocess: EPROCESS = self.read_physical(curProc);
+            let eprocess: EPROCESS = self.read(curProc);
             if eprocess.UniqueProcessId == 0 {
                 println!("Returning early from walking EPROCESS because PID is 0");
                 break;
@@ -185,7 +185,7 @@ impl VMBinding {
             }
 
             let aplOffset = self.offsets.unwrap().apl as u64;
-            let vp: u64 = self.read_physical(curProc + aplOffset);
+            let vp: u64 = self.read(curProc + aplOffset);
             virtProcess = vp - aplOffset;
             if virtProcess == 0 {
                 println!("Returning early from walking EPROCESS list due to VIRTPROC == 0");

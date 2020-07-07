@@ -314,7 +314,7 @@ impl VMBinding {
 
     fn find_initial_process(&self) -> Option<(u64, u64)> {
         for i in 0..10 {
-            let buf: [u8; 0x10000] = self.read_physical(i * 0x10000);
+            let buf: [u8; 0x10000] = self.read(i * 0x10000);
             let mut o: usize = 0;
             loop {
                 if o >= 0x10000 {

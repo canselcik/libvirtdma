@@ -14,15 +14,14 @@ endif
 
 KOUTPUT_MAKEFILE := $(KOUTPUT)/Makefile
 
-all: $(KOUTPUT_MAKEFILE)
-	echo "KOUTPUT IS $(KOUTPUT)"
+all:
+	@(command -v nix-shell &> /dev/null && \
+		nix-shell '<nixpkgs>' -A linuxPackages_latest.kernel.dev --command "./nixbuild.sh") || \
+		make build-module
 
+build-module: $(KOUTPUT_MAKEFILE)
 	make -C $(KDIR) M=$(KOUTPUT) src=$(PWD) modules
 	cp $(KOUTPUT)/vmread.ko $(KOUTPUT)/../vmread.ko
-
-nix:
-	nix-shell '<nixpkgs>' -A linuxPackages_latest.kernel.dev \
-		--command "./nixbuild.sh"
 
 $(KOUTPUT):
 	mkdir -p "$@"

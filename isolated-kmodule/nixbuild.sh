@@ -8,4 +8,4 @@ if [ ! -d $KDIR ]; then
 	exit 1
 fi
 
-KDIR=${KDIR} make
+KDIR=${KDIR} make build-module

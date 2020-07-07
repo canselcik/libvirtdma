@@ -184,6 +184,7 @@ fn show_usage() {
         r#"
 Process Context Commands:
     pmemread              read $2 bytes from PVA $1
+    rust                  runs the RustClient.exe subroutine
     eprocess              show full EPROCESS for the open process [or process with PID $1]
     peb                   print the full PEB of the open process
     pinspect              inspect process named
@@ -213,10 +214,10 @@ General Context Commands:
     kernelexports
     kexports
 
-Legacy Commands:
-    rust:                 runs the rust subroutine
     kmod_to_file:         dump kernel module with the name $1 to disk
+
     memread:              read $2 bytes of physical memory from $1
+
     mem2file              read $2 bytes of physical memory from $1 to $3
 
 Other Commands:
@@ -506,7 +507,7 @@ fn main() {
 
     let vm = VMBinding::new().expect("failed to bind");
     let histfile = format!(
-        "{}/.vmread_hist",
+        "{}/.lvdmacli_hist",
         match dirs::home_dir() {
             Some(h) => h.as_path().display().to_string(),
             None => ".".to_string(),

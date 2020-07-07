@@ -1,10 +1,10 @@
 #![allow(non_snake_case)]
 use byteorder::ByteOrder;
-use hypervisor::proc_kernelinfo::ProcKernelInfo;
-use hypervisor::vm::VMBinding;
-use hypervisor::win::teb::TEB;
+use libvirtdma::proc_kernelinfo::ProcKernelInfo;
+use libvirtdma::vm::VMBinding;
+use libvirtdma::win::teb::TEB;
 use linefeed::{Interface, ReadResult};
-use hypervisor::win::peb_ldr_data::LdrModule;
+use libvirtdma::win::peb_ldr_data::LdrModule;
 use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager, LastObjectBase};
 
 mod rust_structs;

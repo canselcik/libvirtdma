@@ -5,7 +5,7 @@ at https://github.com/h33p/vmread. It adds some additional
 features that would be helpful in inspecting and patching
 the memory of live Windows VMs.
 
-**hypervisor:** Replaces all userspace components of `vmread`,
+**libvirtdma:** Replaces all userspace components of `vmread`,
 `vmread-rs` and `vmread-sys`.
 
 **hypervisor-cli:** Command-line tool to inspect and patch live

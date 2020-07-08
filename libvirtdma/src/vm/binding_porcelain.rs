@@ -2,7 +2,6 @@
 use crate::proc_kernelinfo::ProcKernelInfo;
 use crate::vm::VMBinding;
 use crate::win::ethread::KldrDataTableEntry;
-use crate::win::heap_entry::HEAP;
 use crate::win::list_entry::ListEntry;
 use crate::win::peb_ldr_data::LdrModule;
 use pelite::image::{
@@ -106,7 +105,9 @@ impl VMBinding {
             if m.InLoadOrderLinks.flink == module_list {
                 break;
             }
-            kldr = m.InLoadOrderLinks.get_next_from_kernel_initial_process(&self, 0);
+            kldr = m
+                .InLoadOrderLinks
+                .get_next_from_kernel_initial_process(&self, 0);
         }
         Ok(hmap)
     }
@@ -140,40 +141,16 @@ impl VMBinding {
         println!("{}", table.render());
     }
 
-    pub fn dump_kmod_vmem(&self, module: &KldrDataTableEntry) -> Result<Vec<u8>, i64> {
-        match self.vreadvec(
+    pub fn dump_kmod_vmem(&self, module: &KldrDataTableEntry) -> Box<[u8]> {
+        self.vreadvec(
             self.initial_process.dirbase,
             module.DllBase,
             module.SizeOfImage as u64,
-        ) {
-            None => Err(-1),
-            Some(res) => Ok(res),
-        }
+        )
     }
 
-    pub fn dump_module_vmem(&self, dirbase: u64, module: &LdrModule) -> Result<Vec<u8>, i64> {
-        match self.vreadvec(dirbase, module.BaseAddress, module.SizeOfImage as u64) {
-            None => Err(-1),
-            Some(res) => Ok(res),
-        }
-    }
-
-    pub fn get_heaps_with_dirbase(&self, dirbase: u64, phys_process: u64) -> Vec<HEAP> {
-        let peb = self.get_full_peb(dirbase, phys_process);
-        let primary_heap = peb.ProcessHeap;
-        println!("PEB->ProcessHeap = 0x{:x}", primary_heap);
-        println!("PEB->ProcessHeaps = 0x{:x}", peb.ProcessHeaps);
-        let mut res: Vec<HEAP> = Vec::new();
-        let heaps_array_begin: u64 = peb.ProcessHeaps;
-        for heap_index in 0..peb.NumberOfHeaps {
-            let offset = heap_index as usize * size_of::<u64>();
-            let heapptr = heaps_array_begin + offset as u64;
-            println!("&PEB->ProcessHeaps[{}] = 0x{:x}", heap_index, heapptr);
-            let heap: HEAP = self.vread(dirbase, heapptr);
-            // println!("PEB->ProcessHeaps[{}] = ", heap_index, heapptr);
-            res.push(heap);
-        }
-        return res;
+    pub fn dump_module_vmem(&self, dirbase: u64, module: &LdrModule) -> Box<[u8]> {
+        self.vreadvec(dirbase, module.BaseAddress, module.SizeOfImage as u64)
     }
 
     pub fn pinspect(&self, proc: &mut ProcKernelInfo) {
@@ -341,8 +318,11 @@ impl VMBinding {
         let mut map: HashMap<String, LdrModule> = HashMap::new();
         let dirbase = info.eprocess.Pcb.DirectoryTableBase;
         let mut idx = 0usize;
-        for module in self.get_process_modules(info).drain(0..){
-            let name = module.BaseDllName.resolve(&self, Some(dirbase), Some(255)).unwrap_or(format!("unknown@{}", idx));
+        for module in self.get_process_modules(info).drain(0..) {
+            let name = module
+                .BaseDllName
+                .resolve(&self, Some(dirbase), Some(255))
+                .unwrap_or(format!("unknown@{}", idx));
             map.insert(name, module);
             idx += 1;
         }
@@ -355,8 +335,10 @@ impl VMBinding {
         let first_link = loader.InLoadOrderModuleList.flink;
 
         let mut modules: Vec<LdrModule> = Vec::new();
-        let mut module = loader
-            .get_first_in_load_order_module_list_with_dirbase(&self, info.eprocess.Pcb.DirectoryTableBase);
+        let mut module = loader.get_first_in_load_order_module_list_with_dirbase(
+            &self,
+            info.eprocess.Pcb.DirectoryTableBase,
+        );
         loop {
             if module.is_none() {
                 break;

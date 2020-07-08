@@ -1,10 +1,10 @@
+use crate::vm::vmread_bind;
 use crate::vm::{NtHeaders, ProcessData, VMBinding, WinExport, WinProc};
 use crate::win::Offsets;
 use byteorder::ByteOrder;
 use itertools::Itertools;
 use nix::fcntl::open;
 use nix::unistd::close;
-use crate::vm::vmread_bind;
 use pelite::image::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS32, IMAGE_NT_OPTIONAL_HDR32_MAGIC,
     IMAGE_NT_OPTIONAL_HDR64_MAGIC,
@@ -12,6 +12,7 @@ use pelite::image::{
 use pelite::pe64::image::{IMAGE_NT_HEADERS, IMAGE_NT_HEADERS_SIGNATURE};
 use proc_maps::{MapRange, Pid};
 use regex::bytes::Regex;
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::process::Stdio;
@@ -27,7 +28,7 @@ impl VMBinding {
             nt_build: 0,
             process: match Self::create_process_data() {
                 None => return None,
-                Some(s) => s,
+                Some(s) => UnsafeCell::new(s),
             },
             initial_process: WinProc {
                 eprocess_va: 0,
@@ -46,8 +47,6 @@ impl VMBinding {
                 binding.nt_kernel_entry = kernel_entry;
                 match binding.find_nt_kernel(kernel_entry) {
                     Some((ntk, kexports)) => {
-                        println!("NTKernel ModuleBase @ 0x{:x}", ntk);
-                        println!("Found {} kernel exports", kexports.len());
                         binding.nt_kernel_modulebase = ntk;
                         // Less than ideal but we do it once. Better than having optionals or mutexes everywhere
                         for (k, v) in kexports.iter() {
@@ -55,12 +54,10 @@ impl VMBinding {
                         }
                     }
                     None => {
-                        /* Test in case we are running XP (QEMU AddressSpace is different) */
-                        // #if (LMODE() != MODE_DMA())
+                        // Test in case we are running XP (QEMU AddressSpace is different)
                         //   KFIXC = 0x40000000ll * 4;
                         //   KFIXO = 0x40000000;
                         //   FindNTKernel(ctx, kernelEntry);
-                        // #endif
                         return None;
                     }
                 };
@@ -258,7 +255,8 @@ impl VMBinding {
                                     == 0x45444f434c4f4f50;
                             if kdbg && pool_code {
                                 let nt_kernel = i + 0x10000 * o + p;
-                                match self.get_module_exports(self.initial_process.dirbase, nt_kernel)
+                                match self
+                                    .get_module_exports(self.initial_process.dirbase, nt_kernel)
                                 {
                                     Err(e) => {
                                         println!(
@@ -312,6 +310,7 @@ impl VMBinding {
         }
     }
 
+    // CheckLowStub -- It contains PML4 (kernel DirectoryTableBase) and Kernel EP.
     fn find_initial_process(&self) -> Option<(u64, u64)> {
         for i in 0..10 {
             let buf: [u8; 0x10000] = self.read(i * 0x10000);
@@ -335,6 +334,7 @@ impl VMBinding {
                     o += 0x1000;
                     continue;
                 }
+                // Page Map Level 4
                 let pml4 = xa0_ulonglong;
                 let kernel_entry = x70_ulonglong;
                 return Some((pml4, kernel_entry));
@@ -375,7 +375,7 @@ impl VMBinding {
                 return false;
             }
         };
-        let res = match unsafe { vmread_bind(fd, &mut self.process as *mut ProcessData) } {
+        let res = match unsafe { vmread_bind(fd, self.process.get()) } {
             Ok(res) => res == 0,
             Err(e) => {
                 println!("Failed to call vmread ioctl: {}", e.to_string());

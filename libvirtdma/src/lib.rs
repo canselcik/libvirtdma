@@ -1,3 +1,6 @@
+#![feature(const_int_pow)]
+#![feature(new_uninit)]
+
 #[macro_use]
 extern crate c2rust_bitfields;
 

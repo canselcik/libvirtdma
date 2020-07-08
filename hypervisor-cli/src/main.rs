@@ -1,11 +1,11 @@
 #![allow(non_snake_case)]
+use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager, LastObjectBase};
 use byteorder::ByteOrder;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
 use libvirtdma::vm::VMBinding;
+use libvirtdma::win::peb_ldr_data::LdrModule;
 use libvirtdma::win::teb::TEB;
 use linefeed::{Interface, ReadResult};
-use libvirtdma::win::peb_ldr_data::LdrModule;
-use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager, LastObjectBase};
 
 mod rust_structs;
 
@@ -53,31 +53,22 @@ fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
     }
     let name = &cmd[1];
     match vm.find_kmod(name) {
-        Some(eac) => match vm.dump_kmod_vmem(&eac) {
-            Err(e) => println!("Unable to read kernel module memory: {}", e),
-            Ok(mem) => match std::fs::write(name, &mem) {
+        Some(kmod) => {
+            let mem = vm.dump_kmod_vmem(&kmod);
+            match std::fs::write(name, &mem) {
                 Ok(_) => println!("Module dumped to {}", name),
                 Err(e) => println!("Unable to write file: {}", e.to_string()),
-            },
-        },
-        None => {}
+            };
+        }
+        None => {
+            println!("Unable to find the kernel module of interest");
+        }
     };
 }
 
-fn rust_unity_player_module(
-    vm: &VMBinding,
-    rust: &mut ProcKernelInfo,
-    unity_player: &LdrModule,
-) {
+fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_player: &LdrModule) {
     let rust_dirbase = rust.eprocess.Pcb.DirectoryTableBase;
-    let module_mem = match vm.dump_module_vmem(rust_dirbase, unity_player) {
-        Err(e) => {
-            println!("Failed to dump memory of UnityPlayer.dll: {}", e);
-            return;
-        }
-        Ok(m) => m,
-    };
-
+    let module_mem = vm.dump_module_vmem(rust_dirbase, unity_player);
     let matches = match VMBinding::pmemmem(
         &module_mem,
         "488905????????4883c438c348c705????????????????4883c438c3cccccccccc48",
@@ -85,7 +76,7 @@ fn rust_unity_player_module(
         Err(e) => {
             println!("Failed to find a match for the GOM signature: {}", e);
             return;
-        },
+        }
         Ok(o) => o,
     };
     let gomsig_offset: u64 = if matches.len() != 1 {
@@ -107,8 +98,7 @@ fn rust_unity_player_module(
     );
 
     let offsetA: i32 = vm.vread(rust_dirbase, gomsig_addr + 3);
-    let gom_addr_offset =
-        gomsig_addr + 7 - unity_player.BaseAddress + offsetA as u64;
+    let gom_addr_offset = gomsig_addr + 7 - unity_player.BaseAddress + offsetA as u64;
     let gom_addr = unity_player.BaseAddress + gom_addr_offset;
 
     assert_eq!(unity_player.BaseAddress + 0x17a6ad8, gom_addr);
@@ -125,11 +115,7 @@ fn rust_unity_player_module(
     println!("LTO: {:#?}", lto);
 }
 
-fn rust_game_assembly_module(
-    vm: &VMBinding,
-    rust: &mut ProcKernelInfo,
-    game_assembly: &LdrModule,
-) {
+fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_assembly: &LdrModule) {
     /* possible patterns:
          BaseNetworkable: 488b05????????488b88????????488b094885c974????33c08bd5
          CanAttack: E8????????488B8F????????0FB6F0
@@ -147,7 +133,7 @@ fn rust_game_assembly_module(
 }
 
 fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
-    if !"RustClient.exe".eq(&rust.name){
+    if !"RustClient.exe".eq(&rust.name) {
         println!("The current open process is not called RustClient.exe");
         return;
     }
@@ -169,8 +155,10 @@ fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
     };
 
     println!("Found UnityPlayer.dll at 0x{:x}", unity_player.BaseAddress);
-    println!("Found GameAssembly.dll at 0x{:x}", game_assembly.BaseAddress);
-
+    println!(
+        "Found GameAssembly.dll at 0x{:x}",
+        game_assembly.BaseAddress
+    );
 
     println!("Processing UnityPlayer.dll module...");
     rust_unity_player_module(vm, rust, &unity_player);
@@ -184,6 +172,8 @@ fn show_usage() {
         r#"
 Process Context Commands:
     pmemread              read $2 bytes from PVA $1
+    pmemmem               search hexstring $3 in PVA[$1, $1+$2]
+    pmem2file             read $2 bytes from PVA $1 to $3
     rust                  runs the RustClient.exe subroutine
     eprocess              show full EPROCESS for the open process [or process with PID $1]
     peb                   print the full PEB of the open process
@@ -217,7 +207,6 @@ General Context Commands:
     kmod_to_file:         dump kernel module with the name $1 to disk
 
     memread:              read $2 bytes of physical memory from $1
-
     mem2file              read $2 bytes of physical memory from $1 to $3
 
 Other Commands:
@@ -232,10 +221,140 @@ fn dispatch_commands(
     context: &mut Option<ProcKernelInfo>,
 ) -> Option<DispatchCommandReturnAction> {
     match parts[0].as_ref() {
-        // TODO: Bring back rust experiment support
+        "pmemmem" => match context {
+            Some(info) => {
+                if parts.len() != 4 {
+                    println!("usage: pmem2file <hVA> <hSize> <hexNeedle>")
+                } else {
+                    let hVA = match parse_u64(&parts[1], false) {
+                        Some(h) => h,
+                        None => {
+                            println!("unable to parse hVA");
+                            return None;
+                        }
+                    };
+                    let hSize = match parse_u64(&parts[2], false) {
+                        Some(h) => h,
+                        None => {
+                            println!("unable to parse hSize");
+                            return None;
+                        }
+                    };
+                    let hexNeedle = parts[3].clone();
+                    let data = vm.vreadvec(info.eprocess.Pcb.DirectoryTableBase, hVA, hSize);
+                    match VMBinding::pmemmem(&data, &hexNeedle) {
+                        Ok(results) => {
+                            let mut i: u64 = 0;
+                            for result in results.iter() {
+                                println!(
+                                    "Match {} at offset {} (hVA: 0x{:x})",
+                                    i,
+                                    *result,
+                                    hVA + *result as u64
+                                );
+                                i += 1;
+                            }
+                        }
+                        Err(e) => println!(
+                            "Error while searching the dumped section of interest: {}",
+                            e
+                        ),
+                    }
+                }
+            }
+            None => println!(
+                "usage: pmem2file <hVA> <hSize> <hexNeedle> (after entering a process context)"
+            ),
+        },
+        "pmem2file" => {
+            if parts.len() != 4 {
+                println!("usage: pmem2file <hVA> <hSize> <file>");
+            } else {
+                let hVA = match parse_u64(&parts[1], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hVA");
+                        return None;
+                    }
+                };
+                let hSize = match parse_u64(&parts[2], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hSize");
+                        return None;
+                    }
+                };
+                match context {
+                    None => println!(
+                        "usage: pmem2file <hVA> <hSize> <file> (after entering a process context)"
+                    ),
+                    Some(proc) => {
+                        let data = vm.vreadvec(proc.eprocess.Pcb.DirectoryTableBase, hVA, hSize);
+                        match std::fs::write(&parts[3], &data) {
+                            Ok(_) => println!("{} bytes written to file '{}'", hSize, parts[3]),
+                            Err(e) => println!(
+                                "Error while writing to file '{}': {}",
+                                parts[3],
+                                e.to_string(),
+                            ),
+                        }
+                    }
+                }
+            }
+        }
         "rust" => match context {
             Some(info) => rust_routine(vm, info),
             None => println!("usage: rust (after entering a process context)"),
+        },
+        "patch" => match context {
+            Some(info) => {
+                let dirbase = info.eprocess.Pcb.DirectoryTableBase;
+                let peb = vm.get_full_peb(dirbase, info.eprocessPhysAddr);
+
+                let base_module = match vm
+                    .get_process_modules(info)
+                    .drain(0..)
+                    .find(|m| m.BaseAddress == peb.ImageBaseAddress)
+                {
+                    None => {
+                        println!("Failed to find base module");
+                        return None;
+                    }
+                    Some(m) => m,
+                };
+                let bmname = base_module
+                    .BaseDllName
+                    .resolve(&vm, Some(dirbase), Some(255))
+                    .unwrap_or("unknown".to_string());
+                println!("Base Module determined to be {}", bmname);
+
+                let base_module_data = vm.vreadvec(
+                    dirbase,
+                    base_module.BaseAddress,
+                    base_module.SizeOfImage as u64,
+                );
+                let matches: Vec<usize> = match VMBinding::pmemmem(
+                    &base_module_data,
+                    "736563726574", // hex encoded 'secret'
+                ) {
+                    Err(e) => {
+                        println!("Error while searching for a match for the 'secret': {}", e);
+                        return None;
+                    }
+                    Ok(o) => o,
+                };
+                if matches.len() != 1 {
+                    println!(
+                        "Found {} instances of 'secret' instead of 1.",
+                        matches.len()
+                    );
+                    return None;
+                }
+                let idx = matches[0] as u64;
+                vm.vwrite(dirbase, peb.ImageBaseAddress + idx, "notsec".as_bytes());
+                println!("Performed patch at module offset 0x{:x}", idx);
+            }
+            None => println!("usage: patch (after entering a process context"),
         },
         "winexports" | "kernelexports" | "kexports" => vm.list_kernel_exports(),
         "listkmod" | "listkmods" => vm.list_kmods(),
@@ -312,10 +431,8 @@ fn dispatch_commands(
                         return None;
                     }
                     Some(proc) => {
-                        match vm.vreadvec(proc.eprocess.Pcb.DirectoryTableBase, hVA, hVA + hSize) {
-                            None => println!("Unable to read memory"),
-                            Some(data) => hexdump::hexdump(&data),
-                        }
+                        let data = vm.vreadvec(proc.eprocess.Pcb.DirectoryTableBase, hVA, hSize);
+                        hexdump::hexdump(&data);
                     }
                 }
             }
@@ -443,16 +560,14 @@ fn dispatch_commands(
                         return None;
                     }
                 };
-                match vm.readvec(hPA, hPA + hSize) {
-                    Some(data) => match std::fs::write(&parts[3], &data) {
-                        Ok(_) => println!("{} bytes written to file '{}'", hSize, parts[3]),
-                        Err(e) => println!(
-                            "Error while writing to file '{}': {}",
-                            parts[3],
-                            e.to_string(),
-                        ),
-                    },
-                    None => println!("Unable to read memory"),
+                let data = vm.readvec(hPA, hSize);
+                match std::fs::write(&parts[3], &data) {
+                    Ok(_) => println!("{} bytes written to file '{}'", hSize, parts[3]),
+                    Err(e) => println!(
+                        "Error while writing to file '{}': {}",
+                        parts[3],
+                        e.to_string(),
+                    ),
                 };
             }
         }
@@ -476,10 +591,8 @@ fn dispatch_commands(
                         return None;
                     }
                 };
-                match vm.readvec(hPA, hPA + hSize) {
-                    Some(data) => hexdump::hexdump(&data),
-                    None => println!("Unable to read memory"),
-                };
+                let data = vm.readvec(hPA, hSize);
+                hexdump::hexdump(&data);
             }
         }
         "help" | "usage" => show_usage(),

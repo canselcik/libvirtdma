@@ -1,10 +1,11 @@
 use crate::win::Offsets;
+use std::cell::UnsafeCell;
 use std::collections::HashMap;
 
 pub mod binding_core;
 pub mod binding_init;
 pub mod binding_porcelain;
-pub mod binding_read;
+pub mod binding_rw;
 pub mod binding_search;
 pub mod nativebinding;
 
@@ -61,6 +62,6 @@ pub struct VMBinding {
     pub nt_kernel_modulebase: u64,
     pub initial_process: WinProc,
     pub cached_nt_exports: HashMap<String, WinExport>,
-    pub process: ProcessData,
+    pub process: UnsafeCell<ProcessData>,
     pub offsets: Option<Offsets>,
 }

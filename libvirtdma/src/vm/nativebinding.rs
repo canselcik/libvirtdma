@@ -1,16 +1,16 @@
 #![allow(dead_code)]
 use crate::proc_kernelinfo::ProcKernelInfo;
+use crate::vm::VMBinding;
 use crate::vm::WinExport;
 use crate::win::eprocess::EPROCESS;
 use crate::win::ethread::{ETHREAD, KTHREAD_THREAD_LIST_OFFSET};
 use crate::win::heap_entry::HEAP;
 use crate::win::peb::FullPEB;
+use itertools::Itertools;
 use pelite::image::{IMAGE_DATA_DIRECTORY, IMAGE_EXPORT_DIRECTORY, IMAGE_FILE_HEADER};
 use pelite::pe64::image::IMAGE_OPTIONAL_HEADER;
 use std::collections::HashMap;
 use std::mem::size_of;
-use crate::vm::VMBinding;
-use itertools::Itertools;
 
 impl VMBinding {
     pub fn list_kernel_exports(&self) {
@@ -125,19 +125,15 @@ impl VMBinding {
         self.vread(dirbase, ptr)
     }
 
-    pub fn get_process_heap(&self, dirbase: u64, phys_process: u64) -> Vec<HEAP> {
+    pub fn get_heaps_with_dirbase(&self, dirbase: u64, phys_process: u64) -> Vec<HEAP> {
         let peb = self.get_full_peb(dirbase, phys_process);
         // let primary_heap = peb.ProcessHeap;
-        // println!("PEB->ProcessHeap = 0x{:x}", primary_heap);
-        // println!("PEB->ProcessHeaps = 0x{:x}", peb.ProcessHeaps);
         let mut res: Vec<HEAP> = Vec::new();
         let heaps_array_begin: u64 = peb.ProcessHeaps;
         for heap_index in 0..peb.NumberOfHeaps {
             let offset = heap_index as usize * size_of::<u64>();
             let heapptr = heaps_array_begin + offset as u64;
-            // println!("&PEB->ProcessHeaps[{}] = 0x{:x}", heap_index, heapptr);
             let heap: HEAP = self.vread(dirbase, heapptr);
-            // println!("PEB->ProcessHeaps[{}] = ", heap_index, heapptr);
             res.push(heap);
         }
         return res;
@@ -209,11 +205,12 @@ impl VMBinding {
 
     pub fn threads_from_eprocess(&self, info: &ProcKernelInfo) -> Vec<ETHREAD> {
         // The non KPROCESS ThreadList doesn't seem to work but this is an okay workaround.
-        let mut k_th_next: Option<ETHREAD> = info.eprocess.Pcb.ThreadListHead.get_next_with_dirbase(
-            &self,
-            Some(info.eprocess.Pcb.DirectoryTableBase),
-            KTHREAD_THREAD_LIST_OFFSET,
-        );
+        let mut k_th_next: Option<ETHREAD> =
+            info.eprocess.Pcb.ThreadListHead.get_next_with_dirbase(
+                &self,
+                Some(info.eprocess.Pcb.DirectoryTableBase),
+                KTHREAD_THREAD_LIST_OFFSET,
+            );
         let active_thread_count = info.eprocess.ActiveThreads;
         let mut threads = Vec::with_capacity(active_thread_count as usize);
         for _ in 0..active_thread_count {

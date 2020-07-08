@@ -28,7 +28,6 @@ pub mod unicode_string;
 pub mod heap_entry;
 pub mod list_entry;
 pub mod peb;
-pub mod peb_bitfield;
 pub mod proc_heap_entry;
 pub mod teb;
 

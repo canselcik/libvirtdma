@@ -1,12 +1,61 @@
 #![allow(non_snake_case)]
 use crate::vm::VMBinding;
 use crate::win::misc::*;
-use crate::win::peb_bitfield::PEBBitfield;
 use crate::win::peb_ldr_data::PebLdrData;
 
 impl FullPEB {
     pub fn read_loader_with_dirbase(&self, vm: &VMBinding, dirbase: u64) -> PebLdrData {
         vm.vread(dirbase, self.Ldr)
+    }
+}
+
+#[derive(Copy, Clone, BitfieldStruct)]
+#[repr(C)]
+pub struct PEBBitfield {
+    #[bitfield(name = "ImageUsesLargePages", ty = "bool", bits = "0..=0")]
+    #[bitfield(name = "IsProtectedProcess", ty = "bool", bits = "1..=1")]
+    #[bitfield(name = "IsImageDynamicallyRelocated", ty = "bool", bits = "2..=2")]
+    #[bitfield(name = "SkipPatchingUser32Forwarders", ty = "bool", bits = "3..=3")]
+    #[bitfield(name = "IsPackagedProcess", ty = "bool", bits = "4..=4")]
+    #[bitfield(name = "IsAppContainer", ty = "bool", bits = "5..=5")]
+    #[bitfield(name = "IsProtectedProcessLight", ty = "bool", bits = "6..=6")]
+    #[bitfield(name = "IsLongPathAwareProcess", ty = "bool", bits = "7..=7")]
+    pub value: [u8; 1],
+}
+
+impl std::fmt::Debug for PEBBitfield {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut active: Vec<&str> = Vec::new();
+        if self.ImageUsesLargePages() {
+            active.push("ImageUsesLargePages");
+        }
+        if self.IsProtectedProcess() {
+            active.push("IsProtectedProcess");
+        }
+        if self.IsImageDynamicallyRelocated() {
+            active.push("IsImageDynamicallyRelocated");
+        }
+        if self.SkipPatchingUser32Forwarders() {
+            active.push("SkipPatchingUser32Forwarders");
+        }
+        if self.IsPackagedProcess() {
+            active.push("IsPackagedProcess");
+        }
+        if self.IsAppContainer() {
+            active.push("IsAppContainer");
+        }
+        if self.IsProtectedProcessLight() {
+            active.push("IsProtectedProcessLight");
+        }
+        if self.IsLongPathAwareProcess() {
+            active.push("IsLongPathAwareProcess");
+        }
+        write!(
+            f,
+            "PEBBitfield[{:b}, {}]",
+            self.value[0],
+            active.join(" | "),
+        )
     }
 }
 

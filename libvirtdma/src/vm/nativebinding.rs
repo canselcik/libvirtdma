@@ -119,9 +119,13 @@ impl VMBinding {
         return Ok(hmap);
     }
 
-    pub fn get_full_peb(&self, dirbase: u64, phys_process: u64) -> FullPEB {
+    pub fn get_peb_address(&self, phys_process: u64) -> u64 {
         let peb_offset_from_eprocess = self.offsets.unwrap().peb as u64;
-        let ptr: u64 = self.read(phys_process + peb_offset_from_eprocess);
+        self.read(phys_process + peb_offset_from_eprocess)
+    }
+
+    pub fn get_full_peb(&self, dirbase: u64, phys_process: u64) -> FullPEB {
+        let ptr = self.get_peb_address(phys_process);
         self.vread(dirbase, ptr)
     }
 

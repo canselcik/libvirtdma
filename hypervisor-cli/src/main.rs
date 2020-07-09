@@ -172,6 +172,7 @@ fn show_usage() {
         r#"
 Process Context Commands:
     pmemread              read $2 bytes from PVA $1
+    setprotected          set or unset protected status for process
     pmemmem               search hexstring $3 in PVA[$1, $1+$2]
     pmem2file             read $2 bytes from PVA $1 to $3
     rust                  runs the RustClient.exe subroutine
@@ -302,6 +303,7 @@ fn dispatch_commands(
                 }
             }
         }
+
         "rust" => match context {
             Some(info) => rust_routine(vm, info),
             None => println!("usage: rust (after entering a process context)"),
@@ -408,6 +410,23 @@ fn dispatch_commands(
                 };
             }
         }
+        "setprotected" => match context {
+            Some(info) => if parts.len() != 2 {
+                println!("usage: setprotected <true|false>")
+            } else {
+                let protected = if "true".eq(&parts[1]) {
+                    true
+                } else if "false".eq(&parts[1]) {
+                    false
+                } else {
+                    println!("usage: setprotected <true|false>");
+                    return None;
+                };
+                vm.set_process_security(info, protected);
+                println!("Done");
+            },
+            None => println!("usage: setprotected <true|false> (after entering a process context)"),
+        },
         "pmemread" => {
             if parts.len() != 3 {
                 println!("usage: pmemread <hVA> <hSize>");

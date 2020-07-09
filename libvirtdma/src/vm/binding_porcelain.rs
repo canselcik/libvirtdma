@@ -113,6 +113,18 @@ impl VMBinding {
         Ok(hmap)
     }
 
+    pub fn set_process_security(&self, proc: &ProcKernelInfo, secure: bool) {
+        let dtb = proc.eprocess.Pcb.DirectoryTableBase;
+        let peb = self.get_full_peb(dtb, proc.eprocessPhysAddr);
+        if peb.BitField.IsProtectedProcess() == secure {
+            return;
+        }
+        let pebaddr = self.get_peb_address(proc.eprocessPhysAddr);
+        let mut newval = peb.BitField.clone();
+        newval.set_IsProtectedProcess(secure);
+        self.vwrite(dtb, pebaddr + 0x03, &newval.value);
+    }
+
     pub fn list_processes(&self, require_alive: bool) {
         let mut table = Table::new();
         table.max_column_width = 45;

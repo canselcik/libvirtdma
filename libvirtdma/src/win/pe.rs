@@ -46,6 +46,12 @@ pub struct ImageSectionHeader {
     pub Characteristics: u32,                                                     //0x24
 }
 
+impl ImageSectionHeader {
+    pub fn get_name(&self) -> String {
+        self.Name.iter().map(|b| *b as char).collect()
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]
 //0xf0 bytes (sizeof)

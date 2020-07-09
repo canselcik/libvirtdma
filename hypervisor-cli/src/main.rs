@@ -177,7 +177,7 @@ Process Context Commands:
     rust                  runs the RustClient.exe subroutine
     eprocess              show full EPROCESS for the open process [or process with PID $1]
     peb                   print the full PEB of the open process
-    pinspect              inspect process named
+    sections              get sections for module $1
     tebs
     threads
     loader
@@ -306,6 +306,7 @@ fn dispatch_commands(
             Some(info) => rust_routine(vm, info),
             None => println!("usage: rust (after entering a process context)"),
         },
+        // todo: generalize
         "patch" => match context {
             Some(info) => {
                 let dirbase = info.eprocess.Pcb.DirectoryTableBase;
@@ -478,9 +479,29 @@ fn dispatch_commands(
             Some(info) => vm.list_process_modules(info),
             None => println!("usage: modules (after entering a process context"),
         },
-        "pinspect" => match context {
-            Some(info) => vm.pinspect(info),
-            None => println!("usage: pinspect (after entering a process context"),
+        "sections" => match context {
+            Some(info) => if parts.len() != 2 {
+                println!("usage: sections <moduleName>")
+            } else {
+                match vm.get_process_modules_map(info).get(&parts[1]) {
+                    Some(module) => {
+                        for section in vm.get_module_sections(info, module).iter() {
+                            println!("Section {}", section.get_name());
+                            println!("  PhysicalAddrOrVSize:  0x{:x}", section.PhysicalAddressOrVirtualSize);
+                            println!("  VirtualAddress:       0x{:x}", section.VirtualAddress);
+                            println!("  SizeOfRawData:        0x{:x}", section.SizeOfRawData);
+                            println!("  PointerToRawData:     0x{:x}", section.PointerToRawData);
+                            println!("  PointerToRelocations: 0x{:x}", section.PointerToRelocations);
+                            println!("  PointerToLinenumbers: 0x{:x}", section.PointerToLinenumbers);
+                            println!("  NumberOfRelocations:  0x{:x}", section.NumberOfRelocations);
+                            println!("  NumberOfLinenumbers:  0x{:x}", section.NumberOfLinenumbers);
+                            println!("  Characteristics:      0x{:x}", section.Characteristics);
+                        }
+                    },
+                    None => println!("Failed to find a module with the given name"),
+                }
+            },
+            None => println!("usage: sections <moduleName> (after entering a process context)"),
         },
         "eprocess" => {
             let pid = if parts.len() != 2 && context.is_none() {

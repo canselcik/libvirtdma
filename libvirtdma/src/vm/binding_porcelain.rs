@@ -154,116 +154,31 @@ impl VMBinding {
         self.vreadvec(dirbase, module.BaseAddress, module.SizeOfImage as u64)
     }
 
-    pub fn pinspect(&self, proc: &mut ProcKernelInfo) {
+    pub fn get_module_sections(&self, proc: &mut ProcKernelInfo, module: &LdrModule) -> Vec<ImageSectionHeader> {
         let dirbase = proc.eprocess.Pcb.DirectoryTableBase;
-        let (match_str, mismatch_str) = ("match".to_string(), "MISMATCH".to_string());
+        let dos_header: IMAGE_DOS_HEADER = self.vread(dirbase, module.BaseAddress);
 
-        let peb = self.get_full_peb(dirbase, proc.eprocessPhysAddr);
-        let base = match self
-            .get_process_modules(&proc)
-            .iter()
-            .find(|m| m.BaseAddress == peb.ImageBaseAddress)
-            .cloned()
-        {
-            None => {
-                println!("Unable to find the base module");
-                return;
-            }
-            Some(base) => base,
-        };
-
-        let mut overview = Table::new();
-        overview.max_column_width = 45;
-        overview.style = TableStyle::thin();
-
-        overview.add_row(Row::new(vec![TableCell::new_with_alignment(
-            format!("Overview of {}", proc.name),
-            2,
-            Alignment::Center,
-        )]));
-
-        let dos_header: IMAGE_DOS_HEADER = self.vread(dirbase, base.BaseAddress);
-
-        let mut add_overview_row = |text, val| {
-            overview.add_row(Row::new(vec![
-                TableCell::new_with_alignment(text, 1, Alignment::Left),
-                TableCell::new_with_alignment(val, 1, Alignment::Right),
-            ]));
-        };
-        add_overview_row(
-            "DOS Magic (MZ)",
-            if dos_header.e_magic == IMAGE_DOS_SIGNATURE {
-                match_str.clone()
-            } else {
-                mismatch_str.clone()
-            },
-        );
-
-        let nt_header_addr = base.BaseAddress + dos_header.e_lfanew as u64;
-        let new_exec_header: ImageNtHeaders64 = self.vread(dirbase, nt_header_addr);
-        add_overview_row(
-            "NT Header (PE\\0\\0)",
-            if new_exec_header.Signature == IMAGE_NT_HEADERS_SIGNATURE {
-                match_str.clone()
-            } else {
-                mismatch_str.clone()
-            },
-        );
-        add_overview_row(
-            "Optional64Hdr Magic",
-            if new_exec_header.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC {
-                match_str.clone()
-            } else {
-                mismatch_str.clone()
-            },
-        );
-
-        add_overview_row(
-            "RVA of NT Header (e_lfanew)",
-            format!("0x{:x}", dos_header.e_lfanew),
-        );
-        add_overview_row(
-            "Pointer to Symbol Table",
-            format!("0x{:x}", new_exec_header.FileHeader.PointerToSymbolTable),
-        );
-        add_overview_row(
-            "Base of Code",
-            format!("0x{:x}", new_exec_header.OptionalHeader.BaseOfCode),
-        );
-        add_overview_row(
-            "Size of Code",
-            format!("0x{:x}", new_exec_header.OptionalHeader.SizeOfCode),
-        );
-        add_overview_row(
-            "Address of EntryPoint",
-            format!("0x{:x}", new_exec_header.OptionalHeader.AddressOfEntryPoint),
-        );
-        add_overview_row(
-            "ImageBase",
-            format!("0x{:x}", new_exec_header.OptionalHeader.ImageBase),
-        );
-
-        add_overview_row(
-            "Symbol Count",
-            format!("{}", new_exec_header.FileHeader.NumberOfSymbols),
-        );
-
-        let section_count = new_exec_header.FileHeader.NumberOfSections;
-        add_overview_row("Section Count", format!("{}", section_count));
-
-        println!("{}", overview.render());
-        let section_hdr_addr = nt_header_addr + size_of::<ImageNtHeaders64>() as u64;
-        for section_idx in 0..section_count {
-            let offset = section_idx as u64 * size_of::<ImageSectionHeader>() as u64;
-            let section_header: ImageSectionHeader = self.vread(dirbase, section_hdr_addr + offset);
-            let section_name: String = section_header.Name.iter().map(|b| *b as char).collect();
-            println!(
-                "<-- {} section -->\n  VA: 0x{:x}\n  SizeOfRawData: 0x{:x}\n  PtrRawData: 0x{:x} ",
-                section_name, section_header.VirtualAddress, section_header.SizeOfRawData, section_header.PointerToRawData,
-            );
-            // let section_size = next_section.VirtualAddress - data_header.VirtualAddress;
-            // println!("section_size: 0x{:x}", section_header.VirtualSize);
+        if dos_header.e_magic != IMAGE_DOS_SIGNATURE {
+            println!("WARN: unexpected e_magic (0x{:x})", dos_header.e_magic);
         }
+
+        let nt_header_addr = module.BaseAddress + dos_header.e_lfanew as u64;
+        let new_exec_header: ImageNtHeaders64 = self.vread(dirbase, nt_header_addr);
+        if new_exec_header.Signature != IMAGE_NT_HEADERS_SIGNATURE {
+            println!("WARN: unexpected NTHeader (0x{:x})", new_exec_header.Signature);
+        }
+        if new_exec_header.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC {
+            println!("WARN: unexpected Optional64Hdr (0x{:x})", new_exec_header.OptionalHeader.Magic);
+        }
+
+        let mut res = Vec::new();
+        let first_section_address = nt_header_addr + size_of::<ImageNtHeaders64>() as u64;
+        for section_idx in 0..new_exec_header.FileHeader.NumberOfSections {
+            let offset = section_idx as u64 * size_of::<ImageSectionHeader>() as u64;
+            let section_header: ImageSectionHeader = self.vread(dirbase, first_section_address + offset);
+            res.push(section_header);
+        }
+        return res;
     }
 
     pub fn list_process_modules(&self, proc: &mut ProcKernelInfo) {

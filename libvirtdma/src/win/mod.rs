@@ -1,5 +1,9 @@
 extern crate static_assertions as sa;
 
+pub mod pe;
+
+sa::const_assert!(std::mem::size_of::<pe::ImageNtHeaders64>() == 0x108);
+
 pub mod eprocess;
 
 // 0x2d8 bytes (sizeof) on Windows 10 | 2016 1809 Redstone 5 (October Update) x64

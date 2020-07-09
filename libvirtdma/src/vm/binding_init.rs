@@ -220,6 +220,7 @@ impl VMBinding {
         return 0;
     }
 
+    // finding ntoskrnl.exe
     fn find_nt_kernel(&mut self, kernel_entry: u64) -> Option<(u64, HashMap<String, WinExport>)> {
         let mut mask = 0xfffffu64;
         while mask >= 0xfff {
@@ -320,15 +321,18 @@ impl VMBinding {
                     break;
                 }
                 let ulonglong = byteorder::LittleEndian::read_u64(&buf[o..]);
+                // START BYTES
                 if 0x00000001000600E9 ^ (0xffffffffffff00ff & ulonglong) != 0 {
                     o += 0x1000;
                     continue;
                 }
+                // Kernel vaEntry
                 let x70_ulonglong: u64 = byteorder::LittleEndian::read_u64(&buf[o + 0x70..]);
                 if 0xfffff80000000000 ^ (0xfffff80000000000 & x70_ulonglong) != 0 {
                     o += 0x1000;
                     continue;
                 }
+                // PML4 (Kernel DTB)
                 let xa0_ulonglong: u64 = byteorder::LittleEndian::read_u64(&buf[o + 0xa0..]);
                 if 0xffffff0000000fff & xa0_ulonglong != 0 {
                     o += 0x1000;

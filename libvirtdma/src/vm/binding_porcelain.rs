@@ -5,7 +5,7 @@ use crate::win::ethread::KldrDataTableEntry;
 use crate::win::list_entry::ListEntry;
 use crate::win::peb_ldr_data::LdrModule;
 use pelite::image::{
-    IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS64, IMAGE_NT_HEADERS_SIGNATURE,
+    IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS_SIGNATURE,
     IMAGE_NT_OPTIONAL_HDR64_MAGIC,
 };
 use std::collections::HashMap;
@@ -13,6 +13,7 @@ use std::mem::size_of;
 use term_table::row::Row;
 use term_table::table_cell::{Alignment, TableCell};
 use term_table::{Table, TableStyle};
+use crate::win::pe::{ImageNtHeaders64, ImageSectionHeader};
 
 impl VMBinding {
     pub fn find_kmod(&self, name: &str) -> Option<KldrDataTableEntry> {
@@ -199,7 +200,7 @@ impl VMBinding {
         );
 
         let nt_header_addr = base.BaseAddress + dos_header.e_lfanew as u64;
-        let new_exec_header: IMAGE_NT_HEADERS64 = self.vread(dirbase, nt_header_addr);
+        let new_exec_header: ImageNtHeaders64 = self.vread(dirbase, nt_header_addr);
         add_overview_row(
             "NT Header (PE\\0\\0)",
             if new_exec_header.Signature == IMAGE_NT_HEADERS_SIGNATURE {
@@ -251,19 +252,14 @@ impl VMBinding {
         add_overview_row("Section Count", format!("{}", section_count));
 
         println!("{}", overview.render());
-
-        // TODO: Something is funky here
-        let section_hdr_addr = nt_header_addr + size_of::<IMAGE_NT_HEADERS64>() as u64;
+        let section_hdr_addr = nt_header_addr + size_of::<ImageNtHeaders64>() as u64;
         for section_idx in 0..section_count {
-            let section_header: pelite::image::IMAGE_SECTION_HEADER = self.vread(
-                dirbase,
-                section_hdr_addr
-                    + (section_idx as u64
-                        * size_of::<pelite::image::IMAGE_SECTION_HEADER>() as u64),
-            );
+            let offset = section_idx as u64 * size_of::<ImageSectionHeader>() as u64;
+            let section_header: ImageSectionHeader = self.vread(dirbase, section_hdr_addr + offset);
+            let section_name: String = section_header.Name.iter().map(|b| *b as char).collect();
             println!(
-                "section_header: {} {:#?}",
-                section_header.Name, section_header
+                "<-- {} section -->\n  VA: 0x{:x}\n  SizeOfRawData: 0x{:x}\n  PtrRawData: 0x{:x} ",
+                section_name, section_header.VirtualAddress, section_header.SizeOfRawData, section_header.PointerToRawData,
             );
             // let section_size = next_section.VirtualAddress - data_header.VirtualAddress;
             // println!("section_size: 0x{:x}", section_header.VirtualSize);

@@ -2,6 +2,85 @@
 use crate::win::list_entry::{ListEntry, SingleListEntry};
 use crate::win::misc::*;
 
+// 0x1 bytes (sizeof)
+#[repr(C)]
+#[derive(Copy, Clone, BitfieldStruct)]
+pub struct PsProtection {
+    #[bitfield(name = "Type", ty = "u8", bits = "0..=2")]
+    #[bitfield(name = "Audit", ty = "bool", bits = "3..=3")]
+    #[bitfield(name = "Signer", ty = "u8", bits = "4..=7")]
+    pub value: [u8; 1],
+}
+
+#[derive(Copy, Debug, Clone, PartialEq)]
+pub enum PsProtectedType {
+    None = 0,
+    ProtectedLight = 1,
+    Protected = 2,
+    Unknown = 0xF0,
+}
+
+impl From<u8> for PsProtectedType {
+    fn from(item: u8) -> Self {
+        match item {
+             0 => PsProtectedType::None,
+             1 => PsProtectedType::ProtectedLight,
+             2 => PsProtectedType::Protected,
+             _ => PsProtectedType::Unknown,
+        }
+    }
+}
+
+#[derive(Copy, Debug, Clone, PartialEq)]
+pub enum PsProtectedSigner {
+    None = 0,
+    Authenticode = 1,
+    CodeGen = 2,
+    Antimalware = 3,
+    Lsa = 4,
+    Windows = 5,
+    WinTcb = 6,
+    WinSystem = 7,
+    App = 8,
+    Unknown = 0xF0,
+}
+
+impl From<u8> for PsProtectedSigner {
+    fn from(item: u8) -> Self {
+        match item {
+            0 => PsProtectedSigner::None,
+            1 => PsProtectedSigner::Authenticode,
+            2 => PsProtectedSigner::CodeGen,
+            3 => PsProtectedSigner::Antimalware,
+            4 => PsProtectedSigner::Lsa,
+            5 => PsProtectedSigner::Windows,
+            6 => PsProtectedSigner::WinTcb,
+            7 => PsProtectedSigner::WinSystem,
+            8 => PsProtectedSigner::App,
+            _ => PsProtectedSigner::Unknown,
+        }
+    }
+}
+
+impl PsProtection {
+    pub fn SignerEnum(&self) -> PsProtectedSigner {
+        self.Signer().into()
+    }
+
+    pub fn TypeEnum(&self) -> PsProtectedType {
+        self.Type().into()
+    }
+}
+
+impl std::fmt::Debug for PsProtection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f, "type={:?} audit={} signer={:?}",
+            self.TypeEnum(), self.Audit(), self.SignerEnum(),
+        )
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct EPROCESS {
@@ -94,9 +173,9 @@ pub struct EPROCESS {
     pub ThreadListLock: u64,               //0x6b0 _EX_PUSH_LOCK
     pub WnfContext: u64,                   //0x6b8 VOID*
     pub ServerSilo: u64,                   //0x6c0 _EJOB*
-    pub SignatureLevel: u8,                //0x6c8
+    pub SignatureLevel: u8,                //0x6c8 related to protection
     pub SectionSignatureLevel: u8,         //0x6c9
-    pub Protection: u8,                    //0x6ca _PS_PROTECTION
+    pub Protection: PsProtection,          //0x6ca _PS_PROTECTION
 
     pub HangOrGhostCountAndPrefilterException: u8, //0x6cb
     pub Flags3: u32, //0x6cc SystemProcess, ForegroundSystem, HighGraphicsPriority etc. in a bitfield

@@ -14,6 +14,7 @@ use term_table::row::Row;
 use term_table::table_cell::{Alignment, TableCell};
 use term_table::{Table, TableStyle};
 use crate::win::pe::{ImageNtHeaders64, ImageSectionHeader};
+use crate::win::eprocess::{PsProtectedType, PsProtectedSigner};
 
 impl VMBinding {
     pub fn find_kmod(&self, name: &str) -> Option<KldrDataTableEntry> {
@@ -113,16 +114,16 @@ impl VMBinding {
         Ok(hmap)
     }
 
-    pub fn set_process_security(&self, proc: &ProcKernelInfo, secure: bool) {
-        let dtb = proc.eprocess.Pcb.DirectoryTableBase;
-        let peb = self.get_full_peb(dtb, proc.eprocessPhysAddr);
-        if peb.BitField.IsProtectedProcess() == secure {
-            return;
+    pub fn set_process_security(&self, proc: &mut ProcKernelInfo, typ: PsProtectedType, signer: PsProtectedSigner) {
+        let current = &mut proc.eprocess.Protection;
+        if current.SignerEnum() != signer {
+            current.set_Signer(signer as u8);
         }
-        let pebaddr = self.get_peb_address(proc.eprocessPhysAddr);
-        let mut newval = peb.BitField.clone();
-        newval.set_IsProtectedProcess(secure);
-        self.vwrite(dtb, pebaddr + 0x03, &newval.value);
+        if current.TypeEnum() != typ {
+            current.set_Type(typ as u8);
+        }
+        // PS_PROTECTION offset in EPROCESS
+        self.write(proc.eprocessPhysAddr + 0x6ca, &current.value);
     }
 
     pub fn list_processes(&self, require_alive: bool) {
@@ -132,20 +133,39 @@ impl VMBinding {
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             "EPROCESS Walk",
-            3,
+            4,
             Alignment::Center,
         )]));
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("PID", 1, Alignment::Center),
             TableCell::new_with_alignment("Name", 1, Alignment::Center),
             TableCell::new_with_alignment("DirectoryTableBase", 1, Alignment::Center),
+            TableCell::new_with_alignment("ProtectionType", 1, Alignment::Center),
+            TableCell::new_with_alignment("Audit", 1, Alignment::Center),
+            TableCell::new_with_alignment("Signer", 1, Alignment::Center),
         ]));
         for (pid, info) in self.get_processes(require_alive).iter() {
+            let sprotect = info.eprocess.Protection;
             table.add_row(Row::new(vec![
                 TableCell::new_with_alignment(format!("{}", pid), 1, Alignment::Center),
                 TableCell::new_with_alignment(info.name.to_string(), 1, Alignment::Center),
                 TableCell::new_with_alignment(
                     format!("0x{:x}", info.eprocess.Pcb.DirectoryTableBase),
+                    1,
+                    Alignment::Center,
+                ),
+                TableCell::new_with_alignment(
+                    format!("{:?}", sprotect.TypeEnum()),
+                    1,
+                    Alignment::Center,
+                ),
+                TableCell::new_with_alignment(
+                    format!("{}", sprotect.Audit()),
+                    1,
+                    Alignment::Center,
+                ),
+                TableCell::new_with_alignment(
+                    format!("{:?}", sprotect.SignerEnum()),
                     1,
                     Alignment::Center,
                 ),

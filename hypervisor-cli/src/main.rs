@@ -6,6 +6,7 @@ use libvirtdma::vm::VMBinding;
 use libvirtdma::win::peb_ldr_data::LdrModule;
 use libvirtdma::win::teb::TEB;
 use linefeed::{Interface, ReadResult};
+use libvirtdma::win::eprocess::{PsProtectedType, PsProtectedSigner};
 
 mod rust_structs;
 
@@ -414,16 +415,15 @@ fn dispatch_commands(
             Some(info) => if parts.len() != 2 {
                 println!("usage: setprotected <true|false>")
             } else {
-                let protected = if "true".eq(&parts[1]) {
-                    true
+                if "true".eq(&parts[1]) {
+                    vm.set_process_security(info, PsProtectedType::Protected, PsProtectedSigner::WinTcb);
+                    println!("Enabled Protection");
                 } else if "false".eq(&parts[1]) {
-                    false
+                    vm.set_process_security(info, PsProtectedType::None, PsProtectedSigner::None);
+                    println!("Disabled Protection");
                 } else {
                     println!("usage: setprotected <true|false>");
-                    return None;
-                };
-                vm.set_process_security(info, protected);
-                println!("Done");
+                }
             },
             None => println!("usage: setprotected <true|false> (after entering a process context)"),
         },

@@ -11,7 +11,7 @@ impl FullPEB {
 
 #[derive(Copy, Clone, BitfieldStruct)]
 #[repr(C)]
-pub struct PEBBitfield {
+pub struct PEBFlags {
     #[bitfield(name = "ImageUsesLargePages", ty = "bool", bits = "0..=0")]
     #[bitfield(name = "IsProtectedProcess", ty = "bool", bits = "1..=1")]
     #[bitfield(name = "IsImageDynamicallyRelocated", ty = "bool", bits = "2..=2")]
@@ -23,7 +23,7 @@ pub struct PEBBitfield {
     pub value: [u8; 1],
 }
 
-impl std::fmt::Debug for PEBBitfield {
+impl std::fmt::Debug for PEBFlags {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut active: Vec<&str> = Vec::new();
         if self.ImageUsesLargePages() {
@@ -51,9 +51,7 @@ impl std::fmt::Debug for PEBBitfield {
             active.push("IsLongPathAwareProcess");
         }
         write!(
-            f,
-            "PEBBitfield[{:b}, {}]",
-            self.value[0],
+            f, "{}",
             active.join(" | "),
         )
     }
@@ -65,7 +63,7 @@ pub struct FullPEB {
     pub InheritedAddressSpace: u8,     // 0x00
     pub ReadImageFileExecOptions: u8,  // 0x01
     pub BeingFebugged: u8,             // 0x02
-    pub BitField: PEBBitfield,         // 0x03
+    pub BitField: PEBFlags,         // 0x03
     pub Padding0: [u8; 4usize],
     pub Mutant: u64,
     pub ImageBaseAddress: u64,

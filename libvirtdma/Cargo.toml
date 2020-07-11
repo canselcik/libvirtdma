@@ -3,6 +3,8 @@ name = "libvirtdma"
 version = "0.1.0"
 authors = ["Can Selcik <selcik.can@gmail.com>"]
 edition = "2018"
+description = "inspect and patch live VMs"
+license = "MIT"
 
 [dependencies]
 memmem = "0.1.1"

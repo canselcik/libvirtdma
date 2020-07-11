@@ -1,5 +1,7 @@
 #![allow(non_snake_case, dead_code)]
 
+use std::ffi::c_void;
+
 pub type BaseNetworkableClassPtr = u64;
 pub type MonitorPtr = u64;
 
@@ -34,7 +36,7 @@ pub struct GameObjectManager {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseObject {
-    pub(crate) pad_0x0000: [char; 0x8],
+    pub(crate) pad_0x0000: [u8; 0x8],
     pub(crate) nextObjectLink: *mut BaseObject,
     pub(crate) object: *mut GameObject,
 }
@@ -42,35 +44,35 @@ pub struct BaseObject {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct LastObjectBase {
-    pub(crate) pad_0x0000: [char; 0x10],
+    pub(crate) pad_0x0000: [u8; 0x10],
     pub(crate) lastObject: *mut GameObject,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct EntityRef {
-    pub(crate) ent_cached: u64, // BaseEntity_o*
+    pub(crate) ent_cached: *mut c_void, // BaseEntity_o*
     pub(crate) id_cached: u32,
 }
 
 #[repr(C)]
 // #[derive(Clone, Copy, Debug)]
 pub struct GameObject {
-    pub(crate) pad_0x0000: [char; 0x8],
+    pub(crate) pad_0x0000: [u8; 0x8],
     pub(crate) m_instanceID: i32,
-    pub(crate) pad_0x000C: [char; 0x24],
+    pub(crate) pad_0x000C: [u8; 0x24],
     pub(crate) m_label: i32,
-    pub(crate) pad_0x0034: [char; 0x4],
+    pub(crate) pad_0x0034: [u8; 0x4],
     pub(crate) m_size: i32,
-    pub(crate) pad_0x003C: [char; 0x4],
+    pub(crate) pad_0x003C: [u8; 0x4],
     pub(crate) m_capacity: i32,
-    pub(crate) pad_0x0044: [char; 0x4],
+    pub(crate) pad_0x0044: [u8; 0x4],
     pub(crate) m_layer: i32,
     pub(crate) m_tag: i16,
-    pub(crate) m_isActive: char,
-    pub(crate) m_isActiveCached: char,
-    pub(crate) m_isDestroying: char,
-    pub(crate) m_isActivating: char,
-    pub(crate) pad_0x0052: [char; 0x6],
+    pub(crate) m_isActive: u8,
+    pub(crate) m_isActiveCached: u8,
+    pub(crate) m_isDestroying: u8,
+    pub(crate) m_isActivating: u8,
+    pub(crate) pad_0x0052: [u8; 0x6],
     pub(crate) m_objectName: u64, // *String
 }

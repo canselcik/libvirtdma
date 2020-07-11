@@ -1,4 +1,46 @@
 #![allow(non_snake_case)]
+use std::mem::size_of;
+use crate::vm::VMBinding;
+use std::fmt::Formatter;
+
+#[derive(Copy, Clone, Debug)]
+#[repr(C)]
+pub struct ImageBaseRelocation {
+   pub VirtualAddress: u32,
+   pub SizeOfBlock: u32,
+}
+
+#[derive(Copy, Clone, BitfieldStruct)]
+#[repr(C)]
+pub struct TypeOffset {
+    #[bitfield(name = "Type", ty = "u16", bits = "0..=3")]
+    #[bitfield(name = "Offset", ty = "u16", bits = "4..=15")]
+    pub value: [u8; 2],
+}
+
+impl std::fmt::Debug for TypeOffset {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f, "TypeOffset[type={}, offset={}]",
+            self.Type(), self.Offset(),
+        )
+    }
+}
+
+impl ImageBaseRelocation {
+    pub fn get_type_offsets(&self, vm: &VMBinding, dtb: u64, va_self: u64) -> Vec<TypeOffset> {
+        let typeoffset_size = size_of::<TypeOffset>() as u64;
+        let count = (self.SizeOfBlock as u64 - size_of::<Self>() as u64) / typeoffset_size;
+        let va_self_end = va_self + size_of::<Self>() as u64;
+
+        let mut output = Vec::new();
+        for i in 0..count {
+            let typeoffset = vm.vread(dtb, i * typeoffset_size + va_self_end);
+            output.push(typeoffset);
+        }
+        return output;
+   }
+}
 
 #[derive(Copy, Clone, Debug)]
 #[repr(C)]

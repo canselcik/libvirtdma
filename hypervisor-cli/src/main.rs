@@ -7,7 +7,9 @@ use libvirtdma::win::peb_ldr_data::LdrModule;
 use libvirtdma::win::teb::TEB;
 use linefeed::{Interface, ReadResult};
 use libvirtdma::win::eprocess::{PsProtectedType, PsProtectedSigner};
+use libvirtdma::win::pe::ImageBaseRelocation;
 
+mod asm;
 mod rust_structs;
 
 fn parse_u64(s: &str, le: bool) -> Option<u64> {
@@ -304,7 +306,32 @@ fn dispatch_commands(
                 }
             }
         }
-
+        "vpdisasm" => match context {
+            Some(info) => {
+                if parts.len() != 3 {
+                    println!("usage: vpdisasm <hVA> <hSize>")
+                } else {
+                    let hVA = match parse_u64(&parts[1], false) {
+                        Some(h) => h,
+                        None => {
+                            println!("unable to parse hVA");
+                            return None;
+                        }
+                    };
+                    let hSize = match parse_u64(&parts[2], false) {
+                        Some(h) => h,
+                        None => {
+                            println!("unable to parse hSize");
+                            return None;
+                        }
+                    };
+                    vm.vpdisasm(info.eprocess.Pcb.DirectoryTableBase, hVA, hSize, hVA);
+                }
+            }
+            None => println!(
+                "usage: vpdisasm <hVA> <hSize> (after entering a process context)"
+            ),
+        }
         "rust" => match context {
             Some(info) => rust_routine(vm, info),
             None => println!("usage: rust (after entering a process context)"),
@@ -505,7 +532,8 @@ fn dispatch_commands(
                 match vm.get_process_modules_map(info).get(&parts[1]) {
                     Some(module) => {
                         for section in vm.get_module_sections(info, module).iter() {
-                            println!("Section {}", section.get_name());
+                            let section_name = section.get_name();
+                            println!("Section {}", section_name);
                             println!("  PhysicalAddrOrVSize:  0x{:x}", section.PhysicalAddressOrVirtualSize);
                             println!("  VirtualAddress:       0x{:x}", section.VirtualAddress);
                             println!("  SizeOfRawData:        0x{:x}", section.SizeOfRawData);
@@ -515,6 +543,15 @@ fn dispatch_commands(
                             println!("  NumberOfRelocations:  0x{:x}", section.NumberOfRelocations);
                             println!("  NumberOfLinenumbers:  0x{:x}", section.NumberOfLinenumbers);
                             println!("  Characteristics:      0x{:x}", section.Characteristics);
+                            // todo: needs fixing
+                            if section_name.starts_with(".reloc") {
+                                let dtb = info.eprocess.Pcb.DirectoryTableBase;
+                                let va_reloc = module.BaseAddress + section.VirtualAddress as u64;
+                                let reloc: ImageBaseRelocation = vm.vread(dtb, va_reloc);
+                                for typeoffset in reloc.get_type_offsets(&vm, dtb, va_reloc).iter() {
+                                    println!("Type offset in .reloc: {:?}", typeoffset);
+                                }
+                            }
                         }
                     },
                     None => println!("Failed to find a module with the given name"),

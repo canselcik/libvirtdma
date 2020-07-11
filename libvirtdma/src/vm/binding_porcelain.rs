@@ -234,11 +234,12 @@ impl VMBinding {
             TableCell::new_with_alignment("Size", 1, Alignment::Center),
         ]));
         for m in modules.iter() {
+            let dllname = m.BaseDllName
+                .resolve(&self, Some(proc.eprocess.Pcb.DirectoryTableBase), Some(255))
+                .unwrap_or("unknown".to_string());
             table.add_row(Row::new(vec![
                 TableCell::new_with_alignment(
-                    m.BaseDllName
-                        .resolve(&self, Some(proc.eprocess.Pcb.DirectoryTableBase), Some(255))
-                        .unwrap_or("unknown".to_string()),
+                    &dllname,
                     1,
                     Alignment::Left,
                 ),
@@ -253,6 +254,16 @@ impl VMBinding {
                     Alignment::Right,
                 ),
             ]));
+            // let exports = match self.get_module_exports(proc.eprocess.Pcb.DirectoryTableBase, m.BaseAddress) {
+            //     Ok(exp) => exp,
+            //     Err(e) => {
+            //         println!("Failed to get exports for module: {}", e);
+            //         continue;
+            //     }
+            // };
+            for (name, export) in exports.iter() {
+                println!("[0x{:x}] [{}] {}", export.address, dllname, name);
+            }
         }
         println!("{}", table.render());
     }

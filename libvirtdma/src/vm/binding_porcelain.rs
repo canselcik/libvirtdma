@@ -261,9 +261,9 @@ impl VMBinding {
             //         continue;
             //     }
             // };
-            for (name, export) in exports.iter() {
-                println!("[0x{:x}] [{}] {}", export.address, dllname, name);
-            }
+            // for (name, export) in exports.iter() {
+            //    println!("[0x{:x}] [{}] {}", export.address, dllname, name);
+            // }
         }
         println!("{}", table.render());
     }

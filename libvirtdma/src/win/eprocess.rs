@@ -23,10 +23,10 @@ pub enum PsProtectedType {
 impl From<u8> for PsProtectedType {
     fn from(item: u8) -> Self {
         match item {
-             0 => PsProtectedType::None,
-             1 => PsProtectedType::ProtectedLight,
-             2 => PsProtectedType::Protected,
-             _ => PsProtectedType::Unknown,
+            0 => PsProtectedType::None,
+            1 => PsProtectedType::ProtectedLight,
+            2 => PsProtectedType::Protected,
+            _ => PsProtectedType::Unknown,
         }
     }
 }
@@ -75,8 +75,11 @@ impl PsProtection {
 impl std::fmt::Debug for PsProtection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
-            f, "type={:?} audit={} signer={:?}",
-            self.TypeEnum(), self.Audit(), self.SignerEnum(),
+            f,
+            "type={:?} audit={} signer={:?}",
+            self.TypeEnum(),
+            self.Audit(),
+            self.SignerEnum(),
         )
     }
 }

@@ -1,12 +1,10 @@
-use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction};
 use crate::vm::VMBinding;
+use iced_x86::{Decoder, DecoderOptions, Formatter, Instruction};
 
 const HEXBYTES_COLUMN_BYTE_LENGTH: usize = 10;
 
 use colored::{ColoredString, Colorize};
-use iced_x86::{
-    FormatterOutput, FormatterTextKind, IntelFormatter,
-};
+use iced_x86::{FormatterOutput, FormatterTextKind, IntelFormatter};
 
 // Custom formatter output that stores the output in a vector.
 struct MyFormatterOutput {
@@ -26,7 +24,6 @@ impl FormatterOutput for MyFormatterOutput {
         self.vec.push((String::from(text), kind));
     }
 }
-
 
 fn print_disasm(bytes: &[u8], rip: u64) {
     let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);

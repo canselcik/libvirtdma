@@ -1,8 +1,10 @@
 #![allow(dead_code)]
 use crate::proc_kernelinfo::ProcKernelInfo;
 use crate::vm::VMBinding;
+use crate::win::eprocess::{PsProtectedSigner, PsProtectedType};
 use crate::win::ethread::KldrDataTableEntry;
 use crate::win::list_entry::ListEntry;
+use crate::win::pe::{ImageNtHeaders64, ImageSectionHeader};
 use crate::win::peb_ldr_data::LdrModule;
 use pelite::image::{
     IMAGE_DOS_HEADER, IMAGE_DOS_SIGNATURE, IMAGE_NT_HEADERS_SIGNATURE,
@@ -13,8 +15,6 @@ use std::mem::size_of;
 use term_table::row::Row;
 use term_table::table_cell::{Alignment, TableCell};
 use term_table::{Table, TableStyle};
-use crate::win::pe::{ImageNtHeaders64, ImageSectionHeader};
-use crate::win::eprocess::{PsProtectedType, PsProtectedSigner};
 
 impl VMBinding {
     pub fn find_kmod(&self, name: &str) -> Option<KldrDataTableEntry> {
@@ -114,7 +114,12 @@ impl VMBinding {
         Ok(hmap)
     }
 
-    pub fn set_process_security(&self, proc: &mut ProcKernelInfo, typ: PsProtectedType, signer: PsProtectedSigner) {
+    pub fn set_process_security(
+        &self,
+        proc: &mut ProcKernelInfo,
+        typ: PsProtectedType,
+        signer: PsProtectedSigner,
+    ) {
         let current = &mut proc.eprocess.Protection;
         if current.SignerEnum() != signer {
             current.set_Signer(signer as u8);
@@ -186,7 +191,11 @@ impl VMBinding {
         self.vreadvec(dirbase, module.BaseAddress, module.SizeOfImage as u64)
     }
 
-    pub fn get_module_sections(&self, proc: &mut ProcKernelInfo, module: &LdrModule) -> Vec<ImageSectionHeader> {
+    pub fn get_module_sections(
+        &self,
+        proc: &mut ProcKernelInfo,
+        module: &LdrModule,
+    ) -> Vec<ImageSectionHeader> {
         let dirbase = proc.eprocess.Pcb.DirectoryTableBase;
         let dos_header: IMAGE_DOS_HEADER = self.vread(dirbase, module.BaseAddress);
 
@@ -197,17 +206,24 @@ impl VMBinding {
         let nt_header_addr = module.BaseAddress + dos_header.e_lfanew as u64;
         let new_exec_header: ImageNtHeaders64 = self.vread(dirbase, nt_header_addr);
         if new_exec_header.Signature != IMAGE_NT_HEADERS_SIGNATURE {
-            println!("WARN: unexpected NTHeader (0x{:x})", new_exec_header.Signature);
+            println!(
+                "WARN: unexpected NTHeader (0x{:x})",
+                new_exec_header.Signature
+            );
         }
         if new_exec_header.OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR64_MAGIC {
-            println!("WARN: unexpected Optional64Hdr (0x{:x})", new_exec_header.OptionalHeader.Magic);
+            println!(
+                "WARN: unexpected Optional64Hdr (0x{:x})",
+                new_exec_header.OptionalHeader.Magic
+            );
         }
 
         let mut res = Vec::new();
         let first_section_address = nt_header_addr + size_of::<ImageNtHeaders64>() as u64;
         for section_idx in 0..new_exec_header.FileHeader.NumberOfSections {
             let offset = section_idx as u64 * size_of::<ImageSectionHeader>() as u64;
-            let section_header: ImageSectionHeader = self.vread(dirbase, first_section_address + offset);
+            let section_header: ImageSectionHeader =
+                self.vread(dirbase, first_section_address + offset);
             res.push(section_header);
         }
         return res;
@@ -234,15 +250,12 @@ impl VMBinding {
             TableCell::new_with_alignment("Size", 1, Alignment::Center),
         ]));
         for m in modules.iter() {
-            let dllname = m.BaseDllName
+            let dllname = m
+                .BaseDllName
                 .resolve(&self, Some(proc.eprocess.Pcb.DirectoryTableBase), Some(255))
                 .unwrap_or("unknown".to_string());
             table.add_row(Row::new(vec![
-                TableCell::new_with_alignment(
-                    &dllname,
-                    1,
-                    Alignment::Left,
-                ),
+                TableCell::new_with_alignment(&dllname, 1, Alignment::Left),
                 TableCell::new_with_alignment(
                     format!("0x{:x}", m.BaseAddress),
                     1,
@@ -254,16 +267,6 @@ impl VMBinding {
                     Alignment::Right,
                 ),
             ]));
-            // let exports = match self.get_module_exports(proc.eprocess.Pcb.DirectoryTableBase, m.BaseAddress) {
-            //     Ok(exp) => exp,
-            //     Err(e) => {
-            //         println!("Failed to get exports for module: {}", e);
-            //         continue;
-            //     }
-            // };
-            // for (name, export) in exports.iter() {
-            //    println!("[0x{:x}] [{}] {}", export.address, dllname, name);
-            // }
         }
         println!("{}", table.render());
     }

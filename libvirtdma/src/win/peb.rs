@@ -50,20 +50,17 @@ impl std::fmt::Debug for PEBFlags {
         if self.IsLongPathAwareProcess() {
             active.push("IsLongPathAwareProcess");
         }
-        write!(
-            f, "{}",
-            active.join(" | "),
-        )
+        write!(f, "{}", active.join(" | "),)
     }
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct FullPEB {
-    pub InheritedAddressSpace: u8,     // 0x00
-    pub ReadImageFileExecOptions: u8,  // 0x01
-    pub BeingFebugged: u8,             // 0x02
-    pub BitField: PEBFlags,         // 0x03
+    pub InheritedAddressSpace: u8,    // 0x00
+    pub ReadImageFileExecOptions: u8, // 0x01
+    pub BeingFebugged: u8,            // 0x02
+    pub BitField: PEBFlags,           // 0x03
     pub Padding0: [u8; 4usize],
     pub Mutant: u64,
     pub ImageBaseAddress: u64,

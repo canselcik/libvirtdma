@@ -3,11 +3,11 @@ use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager, LastObj
 use byteorder::ByteOrder;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
 use libvirtdma::vm::VMBinding;
+use libvirtdma::win::eprocess::{PsProtectedSigner, PsProtectedType};
+use libvirtdma::win::pe::ImageBaseRelocation;
 use libvirtdma::win::peb_ldr_data::LdrModule;
 use libvirtdma::win::teb::TEB;
 use linefeed::{Interface, ReadResult};
-use libvirtdma::win::eprocess::{PsProtectedType, PsProtectedSigner};
-use libvirtdma::win::pe::ImageBaseRelocation;
 
 mod asm;
 mod rust_structs;
@@ -182,6 +182,8 @@ Process Context Commands:
     eprocess              show full EPROCESS for the open process [or process with PID $1]
     peb                   print the full PEB of the open process
     sections              get sections for module $1
+    patch
+    vpdisasm
     tebs
     threads
     loader
@@ -306,7 +308,7 @@ fn dispatch_commands(
                 }
             }
         }
-        "vpdisasm" => match context {
+        "vpdisasm" | "vpdisas" | "dis" | "disas" => match context {
             Some(info) => {
                 if parts.len() != 3 {
                     println!("usage: vpdisasm <hVA> <hSize>")
@@ -328,64 +330,121 @@ fn dispatch_commands(
                     vm.vpdisasm(info.eprocess.Pcb.DirectoryTableBase, hVA, hSize, hVA);
                 }
             }
-            None => println!(
-                "usage: vpdisasm <hVA> <hSize> (after entering a process context)"
-            ),
-        }
+            None => println!("usage: vpdisasm <hVA> <hSize> (after entering a process context)"),
+        },
         "rust" => match context {
             Some(info) => rust_routine(vm, info),
             None => println!("usage: rust (after entering a process context)"),
         },
-        // todo: generalize
-        "patch" => match context {
+        "findexports" | "searchexports" | "findexport" | "searchexport" => match context {
             Some(info) => {
-                let dirbase = info.eprocess.Pcb.DirectoryTableBase;
-                let peb = vm.get_full_peb(dirbase, info.eprocessPhysAddr);
-
-                let base_module = match vm
-                    .get_process_modules(info)
-                    .drain(0..)
-                    .find(|m| m.BaseAddress == peb.ImageBaseAddress)
-                {
+                if parts.len() != 2 {
+                    println!("usage: findexports <keyword>");
+                    return None;
+                }
+                let keyword = parts[1].to_lowercase();
+                for (module_name, module) in vm.get_process_modules_map(info).iter() {
+                    match vm.get_module_exports(
+                        info.eprocess.Pcb.DirectoryTableBase,
+                        module.BaseAddress,
+                    ) {
+                        Err(e) => println!(
+                            "WARN: Unable to get module exports for {}: {}",
+                            module_name, e
+                        ),
+                        Ok(exports) => {
+                            for (name, export) in exports.iter() {
+                                if name.to_ascii_lowercase().contains(&keyword) {
+                                    println!("[0x{:x}]@{} {}", export.address, module_name, name);
+                                }
+                            }
+                        }
+                    };
+                }
+            }
+            None => println!("usage: findexports <keyword> (after entering a process context"),
+        },
+        "exports" => match context {
+            Some(info) => {
+                if parts.len() != 2 {
+                    println!("usage: exports <moduleName>");
+                    return None;
+                }
+                let modules = vm.get_process_modules_map(info);
+                let module = match modules.get(&parts[1]) {
                     None => {
-                        println!("Failed to find base module");
+                        println!("Unable to find a module with name {}", &parts[1]);
                         return None;
                     }
                     Some(m) => m,
                 };
-                let bmname = base_module
-                    .BaseDllName
-                    .resolve(&vm, Some(dirbase), Some(255))
-                    .unwrap_or("unknown".to_string());
-                println!("Base Module determined to be {}", bmname);
-
-                let base_module_data = vm.vreadvec(
-                    dirbase,
-                    base_module.BaseAddress,
-                    base_module.SizeOfImage as u64,
-                );
-                let matches: Vec<usize> = match VMBinding::pmemmem(
-                    &base_module_data,
-                    "736563726574", // hex encoded 'secret'
-                ) {
-                    Err(e) => {
-                        println!("Error while searching for a match for the 'secret': {}", e);
+                match vm
+                    .get_module_exports(info.eprocess.Pcb.DirectoryTableBase, module.BaseAddress)
+                {
+                    Err(e) => println!("Unable to get module exports: {}", e),
+                    Ok(exports) => {
+                        for (name, export) in exports.iter() {
+                            println!("[0x{:x}] {}", export.address, name);
+                        }
+                    }
+                };
+            }
+            None => println!("usage: exports <moduleName> (after entering a process context"),
+        },
+        "autopatch" => match context {
+            Some(info) => {
+                let modules = vm.get_process_modules_map(info);
+                let peb =
+                    vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
+                let base_module = match modules
+                    .iter()
+                    .find(|(_, module)| module.BaseAddress == peb.ImageBaseAddress)
+                {
+                    Some(bm) => bm.1,
+                    None => {
+                        println!("Unable to determine base module");
                         return None;
                     }
-                    Ok(o) => o,
                 };
-                if matches.len() != 1 {
-                    println!(
-                        "Found {} instances of 'secret' instead of 1.",
-                        matches.len()
-                    );
+                let user32module = match modules.iter().find(|(name, _)| "User32.dll".eq(name)) {
+                    Some(u32module) => u32module.1,
+                    None => {
+                        println!("Unable to find the User32.dll module");
+                        return None;
+                    }
+                };
+            }
+            None => println!("usage autopatch (after entering a process context)"),
+        },
+        "patch" => match context {
+            Some(info) => {
+                if parts.len() != 3 {
+                    println!("usage: patch <hVA> <hexReplacement>");
                     return None;
                 }
-                let idx = matches[0] as u64;
-                vm.vwrite(dirbase, peb.ImageBaseAddress + idx, "notsec".as_bytes());
-                println!("Performed patch at module offset 0x{:x}", idx);
+                let hVA = match parse_u64(&parts[1], false) {
+                    Some(h) => h,
+                    None => {
+                        println!("unable to parse hVA");
+                        return None;
+                    }
+                };
+                let replacement = match hex::decode(&parts[2]) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        println!(
+                            "Failed to parse the hexReplacement as a hex string: {}",
+                            e.to_string()
+                        );
+                        return None;
+                    }
+                };
+                vm.vwrite(info.eprocess.Pcb.DirectoryTableBase, hVA, &replacement);
+                println!("Performed patch at module offset 0x{:x}", hVA);
             }
-            None => println!("usage: patch (after entering a process context"),
+            None => {
+                println!("usage: patch <hVA> <hexReplacement> (after entering a process context")
+            }
         },
         "winexports" | "kernelexports" | "kexports" => vm.list_kernel_exports(),
         "listkmod" | "listkmods" => vm.list_kmods(),
@@ -439,19 +498,29 @@ fn dispatch_commands(
             }
         }
         "setprotected" => match context {
-            Some(info) => if parts.len() != 2 {
-                println!("usage: setprotected <true|false>")
-            } else {
-                if "true".eq(&parts[1]) {
-                    vm.set_process_security(info, PsProtectedType::Protected, PsProtectedSigner::WinTcb);
-                    println!("Enabled Protection");
-                } else if "false".eq(&parts[1]) {
-                    vm.set_process_security(info, PsProtectedType::None, PsProtectedSigner::None);
-                    println!("Disabled Protection");
+            Some(info) => {
+                if parts.len() != 2 {
+                    println!("usage: setprotected <true|false>")
                 } else {
-                    println!("usage: setprotected <true|false>");
+                    if "true".eq(&parts[1]) {
+                        vm.set_process_security(
+                            info,
+                            PsProtectedType::Protected,
+                            PsProtectedSigner::WinTcb,
+                        );
+                        println!("Enabled Protection");
+                    } else if "false".eq(&parts[1]) {
+                        vm.set_process_security(
+                            info,
+                            PsProtectedType::None,
+                            PsProtectedSigner::None,
+                        );
+                        println!("Disabled Protection");
+                    } else {
+                        println!("usage: setprotected <true|false>");
+                    }
                 }
-            },
+            }
             None => println!("usage: setprotected <true|false> (after entering a process context)"),
         },
         "pmemread" => {
@@ -526,37 +595,60 @@ fn dispatch_commands(
             None => println!("usage: modules (after entering a process context"),
         },
         "sections" => match context {
-            Some(info) => if parts.len() != 2 {
-                println!("usage: sections <moduleName>")
-            } else {
-                match vm.get_process_modules_map(info).get(&parts[1]) {
-                    Some(module) => {
-                        for section in vm.get_module_sections(info, module).iter() {
-                            let section_name = section.get_name();
-                            println!("Section {}", section_name);
-                            println!("  PhysicalAddrOrVSize:  0x{:x}", section.PhysicalAddressOrVirtualSize);
-                            println!("  VirtualAddress:       0x{:x}", section.VirtualAddress);
-                            println!("  SizeOfRawData:        0x{:x}", section.SizeOfRawData);
-                            println!("  PointerToRawData:     0x{:x}", section.PointerToRawData);
-                            println!("  PointerToRelocations: 0x{:x}", section.PointerToRelocations);
-                            println!("  PointerToLinenumbers: 0x{:x}", section.PointerToLinenumbers);
-                            println!("  NumberOfRelocations:  0x{:x}", section.NumberOfRelocations);
-                            println!("  NumberOfLinenumbers:  0x{:x}", section.NumberOfLinenumbers);
-                            println!("  Characteristics:      0x{:x}", section.Characteristics);
-                            // todo: needs fixing
-                            if section_name.starts_with(".reloc") {
-                                let dtb = info.eprocess.Pcb.DirectoryTableBase;
-                                let va_reloc = module.BaseAddress + section.VirtualAddress as u64;
-                                let reloc: ImageBaseRelocation = vm.vread(dtb, va_reloc);
-                                for typeoffset in reloc.get_type_offsets(&vm, dtb, va_reloc).iter() {
-                                    println!("Type offset in .reloc: {:?}", typeoffset);
+            Some(info) => {
+                if parts.len() != 2 {
+                    println!("usage: sections <moduleName>")
+                } else {
+                    match vm.get_process_modules_map(info).get(&parts[1]) {
+                        Some(module) => {
+                            for section in vm.get_module_sections(info, module).iter() {
+                                let section_name = section.get_name();
+                                println!("Section {}", section_name);
+                                println!(
+                                    "  PhysicalAddrOrVSize:  0x{:x}",
+                                    section.PhysicalAddressOrVirtualSize
+                                );
+                                println!("  VirtualAddress:       0x{:x}", section.VirtualAddress);
+                                println!("  SizeOfRawData:        0x{:x}", section.SizeOfRawData);
+                                println!(
+                                    "  PointerToRawData:     0x{:x}",
+                                    section.PointerToRawData
+                                );
+                                println!(
+                                    "  PointerToRelocations: 0x{:x}",
+                                    section.PointerToRelocations
+                                );
+                                println!(
+                                    "  PointerToLinenumbers: 0x{:x}",
+                                    section.PointerToLinenumbers
+                                );
+                                println!(
+                                    "  NumberOfRelocations:  0x{:x}",
+                                    section.NumberOfRelocations
+                                );
+                                println!(
+                                    "  NumberOfLinenumbers:  0x{:x}",
+                                    section.NumberOfLinenumbers
+                                );
+                                println!("  Characteristics:      0x{:x}", section.Characteristics);
+                                // todo: needs fixing
+                                if section_name.starts_with(".reloc") {
+                                    let dtb = info.eprocess.Pcb.DirectoryTableBase;
+                                    let va_reloc =
+                                        module.BaseAddress + section.VirtualAddress as u64;
+                                    let reloc: ImageBaseRelocation = vm.vread(dtb, va_reloc);
+                                    for type_offset in
+                                        reloc.get_type_offsets(&vm, dtb, va_reloc).iter()
+                                    {
+                                        println!("Type offset in .reloc: {:?}", type_offset);
+                                    }
                                 }
                             }
                         }
-                    },
-                    None => println!("Failed to find a module with the given name"),
+                        None => println!("Failed to find a module with the given name"),
+                    }
                 }
-            },
+            }
             None => println!("usage: sections <moduleName> (after entering a process context)"),
         },
         "eprocess" => {

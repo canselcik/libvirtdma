@@ -25,7 +25,7 @@ impl FormatterOutput for MyFormatterOutput {
     }
 }
 
-fn print_disasm(bytes: &[u8], rip: u64) {
+pub fn print_disasm(bytes: &[u8], rip: u64) {
     let mut decoder = Decoder::new(64, bytes, DecoderOptions::NONE);
     decoder.set_ip(rip);
 
@@ -70,7 +70,7 @@ fn print_disasm(bytes: &[u8], rip: u64) {
             }
         }
         for (text, kind) in output.vec.iter() {
-            print!("{}", get_color(text.as_str(), *kind));
+            print!(" {}", get_color(text.as_str(), *kind));
         }
         println!();
     }

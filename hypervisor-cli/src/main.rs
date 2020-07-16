@@ -1,10 +1,12 @@
 #![allow(non_snake_case)]
-use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager, LastObjectBase};
+use crate::rust_structs::{
+    BaseNetworkable, DotNetList, EntityRef, GameObjectManager, LastObjectBase,
+};
 use byteorder::ByteOrder;
+use colored::*;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
 use libvirtdma::vm::VMBinding;
 use libvirtdma::win::eprocess::{PsProtectedSigner, PsProtectedType};
-use libvirtdma::win::pe::ImageBaseRelocation;
 use libvirtdma::win::peb_ldr_data::LdrModule;
 use libvirtdma::win::teb::TEB;
 use linefeed::{Interface, ReadResult};
@@ -13,19 +15,36 @@ mod asm;
 mod rust_structs;
 
 fn parse_u64(s: &str, le: bool) -> Option<u64> {
+    if s.contains("+") {
+        let parts: Vec<_> = s.splitn(2, |c: char| c == '+').map(String::from).collect();
+        let lh = parse_u64(&parts[0], le);
+        let rh = parse_u64(&parts[1], le);
+        if lh.is_none() || rh.is_none() {
+            println!("Invalid expression");
+            return None;
+        }
+        return Some(lh.unwrap() + rh.unwrap());
+    }
     match s.strip_prefix("0x") {
         None => match s.parse::<u64>() {
             Ok(r) => Some(r),
             Err(_) => None,
         },
-        Some(h) => match hex::decode(format!("{}{}", "0".repeat(16 - h.len()), h)) {
-            Ok(r) => Some(if le {
-                byteorder::LittleEndian::read_u64(&r)
+        Some(h) => {
+            let hh = if h.len() < 16 {
+                format!("{}{}", "0".repeat(16 - h.len()), h)
             } else {
-                byteorder::BigEndian::read_u64(&r)
-            }),
-            Err(_) => None,
-        },
+                h.to_string()
+            };
+            match hex::decode(hh) {
+                Ok(r) => Some(if le {
+                    byteorder::LittleEndian::read_u64(&r)
+                } else {
+                    byteorder::BigEndian::read_u64(&r)
+                }),
+                Err(_) => None,
+            }
+        }
     }
 }
 
@@ -125,14 +144,22 @@ fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_ass
          CreateProjectile: 48895C24??48896C24??48897424??48897C24??41564883EC50803D??????????498BD9498BE8
          SendProjectileAttack: E8????????F20F1083????????F20F1183????????8B83????????8983????????80BB??????????
     */
-    let bnaddr = game_assembly.BaseAddress + 0x28861B0;
+    let bnaddr = game_assembly.BaseAddress + 0x28FFD20;
     let dirbase = rust.eprocess.Pcb.DirectoryTableBase;
     let nb: BaseNetworkable = vm.vread(dirbase, bnaddr);
-    println!("BaseNetworkable: {:#?}", nb);
+    println!("BaseNetworkable at 0x{:x}: {:#?}", bnaddr, nb);
+
+    let list_of_components_postNetworkUpdateComponents: DotNetList<u32> =
+        vm.vread(dirbase, bnaddr + 0x28);
+    println!(
+        "list_of_components_postNetworkUpdateComponents: {:#?}",
+        list_of_components_postNetworkUpdateComponents
+    );
+    //public List<Component> ; // 0x28
 
     let erefaddr = game_assembly.BaseAddress + nb.parentEntityRef;
     let eref: EntityRef = vm.vread(dirbase, erefaddr);
-    println!("EREF: {:#?}", eref);
+    println!("EREF at 0x{:x}: {:#?}", erefaddr, eref);
 }
 
 fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
@@ -230,7 +257,7 @@ fn dispatch_commands(
         "pmemmem" => match context {
             Some(info) => {
                 if parts.len() != 4 {
-                    println!("usage: pmem2file <hVA> <hSize> <hexNeedle>")
+                    println!("usage: pmemmem <hVA> <hSize> <hexNeedle>")
                 } else {
                     let hVA = match parse_u64(&parts[1], false) {
                         Some(h) => h,
@@ -269,7 +296,7 @@ fn dispatch_commands(
                 }
             }
             None => println!(
-                "usage: pmem2file <hVA> <hSize> <hexNeedle> (after entering a process context)"
+                "usage: pmemmem <hVA> <hSize> <hexNeedle> (after entering a process context)"
             ),
         },
         "pmem2file" => {
@@ -339,10 +366,10 @@ fn dispatch_commands(
         "findexports" | "searchexports" | "findexport" | "searchexport" => match context {
             Some(info) => {
                 if parts.len() != 2 {
-                    println!("usage: findexports <keyword>");
+                    println!("usage: findmem <hexNeedle>");
                     return None;
                 }
-                let keyword = parts[1].to_lowercase();
+                let hexNeedle = parts[1].to_lowercase();
                 for (module_name, module) in vm.get_process_modules_map(info).iter() {
                     match vm.get_module_exports(
                         info.eprocess.Pcb.DirectoryTableBase,
@@ -354,7 +381,7 @@ fn dispatch_commands(
                         ),
                         Ok(exports) => {
                             for (name, export) in exports.iter() {
-                                if name.to_ascii_lowercase().contains(&keyword) {
+                                if name.to_ascii_lowercase().contains(&hexNeedle) {
                                     println!("[0x{:x}]@{} {}", export.address, module_name, name);
                                 }
                             }
@@ -363,6 +390,43 @@ fn dispatch_commands(
                 }
             }
             None => println!("usage: findexports <keyword> (after entering a process context"),
+        },
+        "findmem" | "searchmem" => match context {
+            Some(info) => {
+                if parts.len() != 2 {
+                    println!("usage: findmem <keyword>");
+                    return None;
+                }
+                let keyword = parts[1].to_lowercase();
+                let dtb = info.eprocess.Pcb.DirectoryTableBase;
+                for module in vm.get_process_modules(info).iter() {
+                    let data = vm.dump_module_vmem(dtb, module);
+                    match VMBinding::pmemmem(&data, &keyword) {
+                        Ok(results) => {
+                            let mut i: u64 = 0;
+                            for result in results.iter() {
+                                println!(
+                                    "Match {} at offset {} (0x{:x}) of {} (hVA: 0x{:x})",
+                                    i,
+                                    *result,
+                                    *result,
+                                    module
+                                        .BaseDllName
+                                        .resolve(&vm, Some(dtb), Some(255))
+                                        .unwrap_or("unknown".to_string()),
+                                    module.BaseAddress + *result as u64
+                                );
+                                i += 1;
+                            }
+                        }
+                        Err(e) => println!(
+                            "Error while searching the dumped section of interest: {}",
+                            e
+                        ),
+                    };
+                }
+            }
+            None => println!("usage: findmem <keyword> (after entering a process context"),
         },
         "exports" => match context {
             Some(info) => {
@@ -394,8 +458,8 @@ fn dispatch_commands(
         "autopatch" => match context {
             Some(info) => {
                 let modules = vm.get_process_modules_map(info);
-                let peb =
-                    vm.get_full_peb(info.eprocess.Pcb.DirectoryTableBase, info.eprocessPhysAddr);
+                let dirbase = info.eprocess.Pcb.DirectoryTableBase;
+                let peb = vm.get_full_peb(dirbase, info.eprocessPhysAddr);
                 let base_module = match modules
                     .iter()
                     .find(|(_, module)| module.BaseAddress == peb.ImageBaseAddress)
@@ -406,15 +470,84 @@ fn dispatch_commands(
                         return None;
                     }
                 };
-                let user32module = match modules.iter().find(|(name, _)| "User32.dll".eq(name)) {
+                println!("Found base module at 0x{:x}", base_module.BaseAddress);
+
+                let user32module = match modules.iter().find(|(name, _)| "User32.dll".eq(*name)) {
                     Some(u32module) => u32module.1,
                     None => {
                         println!("Unable to find the User32.dll module");
                         return None;
                     }
                 };
+                println!(
+                    "Found User32.dll with base address 0x{:x}",
+                    user32module.BaseAddress
+                );
+
+                let va_msgboxa = match vm.get_module_exports(dirbase, user32module.BaseAddress) {
+                    Err(e) => {
+                        println!("Failed to get the exports of User32.dll: {}", e);
+                        return None;
+                    }
+                    Ok(u32exports) => match u32exports.get("MessageBoxA") {
+                        Some(m) => m.address,
+                        None => {
+                            println!("Unable to find MessageBoxA in User32.dll");
+                            return None;
+                        }
+                    },
+                };
+                println!("Found MessageBoxA at 0x{:x}", va_msgboxa);
+
+                let main_module_mem = vm.dump_module_vmem(dirbase, base_module);
+                let secretaddr = base_module.BaseAddress
+                    + match VMBinding::pmemmem(&main_module_mem, "736563726574") {
+                        Ok(m) => {
+                            if m.len() == 1 {
+                                m[0]
+                            } else {
+                                println!("Found {} matches. Not patching.", m.len());
+                                return None;
+                            }
+                        }
+                        Err(e) => {
+                            println!("Failed to find matches: {}", e);
+                            return None;
+                        }
+                    } as u64;
+                let sigaddr = match VMBinding::pmemmem(&main_module_mem, "eb051bc083c80185c0") {
+                    Ok(m) => {
+                        if m.len() == 1 {
+                            m[0]
+                        } else {
+                            println!("Found {} matches. Not patching.", m.len());
+                            return None;
+                        }
+                    }
+                    Err(e) => {
+                        println!("Failed to find matches: {}", e);
+                        return None;
+                    }
+                };
+                let patchaddr = base_module.BaseAddress + sigaddr as u64 + 0x9;
+                println!(
+                    "Found the signature {} bytes from the base module base address, will patch at 0x{:x}",
+                    sigaddr, patchaddr
+                );
+
+                let mut body = asm::MessageBoxA(va_msgboxa, 0, secretaddr);
+                while body.len() < 81 {
+                    body.push(0x90);
+                }
+                println!(
+                    "Generated following payload to call MessageBoxA (len={} bytes)",
+                    body.len()
+                );
+                libvirtdma::disasm(&body, 0);
+                vm.vwrite(dirbase, patchaddr, &body);
+                println!("Patched");
             }
-            None => println!("usage autopatch (after entering a process context)"),
+            None => println!("usage: autopatch (after entering a process context)"),
         },
         "patch" => match context {
             Some(info) => {
@@ -605,44 +738,49 @@ fn dispatch_commands(
                                 let section_name = section.get_name();
                                 println!("Section {}", section_name);
                                 println!(
+                                    "  VA: 0x{:x}\n  Size: 0x{:x}",
+                                    module.BaseAddress + section.VirtualAddress as u64,
+                                    section.SizeOfRawData,
+                                );
+                                println!(
                                     "  PhysicalAddrOrVSize:  0x{:x}",
                                     section.PhysicalAddressOrVirtualSize
                                 );
-                                println!("  VirtualAddress:       0x{:x}", section.VirtualAddress);
-                                println!("  SizeOfRawData:        0x{:x}", section.SizeOfRawData);
-                                println!(
-                                    "  PointerToRawData:     0x{:x}",
-                                    section.PointerToRawData
-                                );
-                                println!(
-                                    "  PointerToRelocations: 0x{:x}",
-                                    section.PointerToRelocations
-                                );
-                                println!(
-                                    "  PointerToLinenumbers: 0x{:x}",
-                                    section.PointerToLinenumbers
-                                );
-                                println!(
-                                    "  NumberOfRelocations:  0x{:x}",
-                                    section.NumberOfRelocations
-                                );
-                                println!(
-                                    "  NumberOfLinenumbers:  0x{:x}",
-                                    section.NumberOfLinenumbers
-                                );
-                                println!("  Characteristics:      0x{:x}", section.Characteristics);
+                                // println!("  VirtualAddress:       0x{:x}", section.VirtualAddress);
+                                // println!("  SizeOfRawData:        0x{:x}", section.SizeOfRawData);
+                                // println!(
+                                //     "  PointerToRawData:     0x{:x}",
+                                //     section.PointerToRawData
+                                // );
+                                // println!(
+                                //     "  PointerToRelocations: 0x{:x}",
+                                //     section.PointerToRelocations
+                                // );
+                                // println!(
+                                //     "  PointerToLinenumbers: 0x{:x}",
+                                //     section.PointerToLinenumbers
+                                // );
+                                // println!(
+                                //     "  NumberOfRelocations:  0x{:x}",
+                                //     section.NumberOfRelocations
+                                // );
+                                // println!(
+                                //     "  NumberOfLinenumbers:  0x{:x}",
+                                //     section.NumberOfLinenumbers
+                                // );
+                                // println!("  Characteristics:      0x{:x}", section.Characteristics);
                                 // todo: needs fixing
-                                if section_name.starts_with(".reloc") {
-                                    let dtb = info.eprocess.Pcb.DirectoryTableBase;
-                                    let va_reloc =
-                                        module.BaseAddress + section.VirtualAddress as u64;
-                                    let reloc: ImageBaseRelocation = vm.vread(dtb, va_reloc);
-                                    for type_offset in
-                                        reloc.get_type_offsets(&vm, dtb, va_reloc).iter()
-                                    {
-                                        println!("Type offset in .reloc: {:?}", type_offset);
-                                    }
-                                }
+                                // if section_name.starts_with(".reloc") {
+                                //     let dtb = info.eprocess.Pcb.DirectoryTableBase;
+                                //     let va_reloc =
+                                //         module.BaseAddress + section.VirtualAddress as u64;
+                                //     let reloc: ImageBaseRelocation = vm.vread(dtb, va_reloc);
+                                //     for type_offset in
+                                //         reloc.get_type_offsets(&vm, dtb, va_reloc).iter()
+                                //     {
+                                //         println!("Type offset in .reloc: {:?}", type_offset);
+                                //     }
+                                // }
                             }
                         }
                         None => println!("Failed to find a module with the given name"),
@@ -795,9 +933,11 @@ fn main() {
             None => ".".to_string(),
         }
     );
-    println!("\n######################");
-    println!("#  Hypervisor Shell   ");
-    println!("######################\n");
+
+    println!("{}", "######################".blue());
+    println!("{}", "#  Hypervisor Shell   ".blue());
+    println!("{}", "######################\n".blue());
+
     let interface = Interface::new("hypervisor").unwrap();
     if let Err(e) = interface.load_history(histfile.clone()) {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -813,8 +953,8 @@ fn main() {
         interface
             .set_prompt(&format!(
                 "\x01{prefix}\x02{text}\x01{suffix}\x02",
-                prefix = "", //style.prefix(),
-                text = format!("hypervisor{}> ", s),
+                prefix = "",
+                text = format!("hypervisor{}> ", s).yellow(),
                 suffix = "", //style.suffix()
             ))
             .unwrap();

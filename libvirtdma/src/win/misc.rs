@@ -35,6 +35,8 @@ makeByteRange!(Bytes1024, 1024);
 makeByteRange!(Bytes1520, 0x5f0);
 makeByteRange!(Bytes168, 0xA8);
 makeByteRange!(Bytes24, 24);
+makeByteRange!(Bytes16, 0x10);
+makeByteRange!(Bytes8, 0x8);
 makeByteRange!(Bytes272, 0x110);
 makeByteRange!(Bytes280, 280);
 makeByteRange!(Bytes32, 0x20);

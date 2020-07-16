@@ -1,27 +1,34 @@
 #![allow(non_snake_case, dead_code)]
-
 use std::ffi::c_void;
 
-pub type BaseNetworkableClassPtr = u64;
-pub type MonitorPtr = u64;
+pub type BaseNetworkableClassPtr = *mut c_void;
+pub type MonitorPtr = *mut c_void;
 
-#[repr(packed)]
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseNetworkable {
     pub(crate) klass: BaseNetworkableClassPtr,
     pub(crate) monitor: MonitorPtr,
-    pub(crate) object_m_CachedPtr: u64,
+    pub(crate) object_m_CachedPtr: *mut c_void,
     pub(crate) justCreated_k__BackingField: bool,
     pub(crate) entityDestroy_deferredAction: u64,
-    pub(crate) postNetworkUpdateComponents_collectionsList: u64,
+    pub(crate) postNetworkUpdateComponents_collectionsList: *mut c_void,
     pub(crate) parentEntityRef: u64,
-    pub(crate) children_baseEntitylist: u64,
+    pub(crate) children_baseEntitylist: *mut c_void,
     pub(crate) prefabID: u32,
     pub(crate) globalBroadcast: bool,
-    pub(crate) net_Network_Networkable_o: u64,
+    pub(crate) net_Network_Networkable_o: *mut c_void,
     pub(crate) isDestroyed_k__BackingField: bool,
-    pub(crate) prefabNameStrRef: u64,
-    pub(crate) prefabNameWithoutExtensionStrRef: u64,
+    pub(crate) prefabNameStrRef: *mut c_void,
+    pub(crate) prefabNameWithoutExtensionStrRef: *mut c_void,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct DotNetList<T> {
+    pub(crate) methodTablePtr: u32,
+    pub(crate) length: u32,
+    pub(crate) firstElement: T,
 }
 
 #[repr(C)]
@@ -36,7 +43,7 @@ pub struct GameObjectManager {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseObject {
-    pub(crate) pad_0x0000: [u8; 0x8],
+    pub(crate) pad_0x0000: libvirtdma::win::misc::Bytes8,
     pub(crate) nextObjectLink: *mut BaseObject,
     pub(crate) object: *mut GameObject,
 }
@@ -44,7 +51,7 @@ pub struct BaseObject {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct LastObjectBase {
-    pub(crate) pad_0x0000: [u8; 0x10],
+    pub(crate) pad_0x0000: libvirtdma::win::misc::Bytes16,
     pub(crate) lastObject: *mut GameObject,
 }
 

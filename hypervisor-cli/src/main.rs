@@ -2,9 +2,9 @@
 use crate::rust_structs::{
     BaseNetworkable, DotNetList, EntityRef, GameObjectManager, LastObjectBase,
 };
-use byteorder::ByteOrder;
 use colored::*;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
+use libvirtdma::vm::mlayout::parse_u64;
 use libvirtdma::vm::VMBinding;
 use libvirtdma::win::eprocess::{PsProtectedSigner, PsProtectedType};
 use libvirtdma::win::peb_ldr_data::LdrModule;
@@ -13,60 +13,6 @@ use linefeed::{Interface, ReadResult};
 
 mod asm;
 mod rust_structs;
-
-fn parse_u64(s: &str, le: bool) -> Option<u64> {
-    if s.contains("+") {
-        let parts: Vec<_> = s.splitn(2, |c: char| c == '+').map(String::from).collect();
-        let lh = parse_u64(&parts[0], le);
-        let rh = parse_u64(&parts[1], le);
-        if lh.is_none() || rh.is_none() {
-            println!("Invalid expression");
-            return None;
-        }
-        return Some(lh.unwrap() + rh.unwrap());
-    }
-    match s.strip_prefix("0x") {
-        None => match s.parse::<u64>() {
-            Ok(r) => Some(r),
-            Err(_) => None,
-        },
-        Some(h) => {
-            let hh = if h.len() < 16 {
-                format!("{}{}", "0".repeat(16 - h.len()), h)
-            } else {
-                h.to_string()
-            };
-            match hex::decode(hh) {
-                Ok(r) => Some(if le {
-                    byteorder::LittleEndian::read_u64(&r)
-                } else {
-                    byteorder::BigEndian::read_u64(&r)
-                }),
-                Err(_) => None,
-            }
-        }
-    }
-}
-
-#[test]
-fn test_parse_u64() {
-    // LE flag is invariant over decimal input
-    assert_eq!(parse_u64("123", false), Some(123));
-    assert_eq!(parse_u64("123", true), Some(123));
-
-    // Prefix works as expected in BE mode
-    assert_eq!(parse_u64("0x4A", false), Some(74));
-
-    assert_eq!(
-        parse_u64("0xCAFEBABEDEADBEEF", false),
-        Some(14627333968688430831)
-    );
-    assert_eq!(
-        parse_u64("0x0000000004a3f6e1", false),
-        parse_u64("0x4a3f6e1", false),
-    );
-    assert_eq!(parse_u64("0x0000000004a3f6e1", false), Some(77854433));
-}
 
 fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
     if cmd.len() != 2 {
@@ -157,9 +103,12 @@ fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_ass
     );
     //public List<Component> ; // 0x28
 
-    let erefaddr = game_assembly.BaseAddress + nb.parentEntityRef;
-    let eref: EntityRef = vm.vread(dirbase, erefaddr);
-    println!("EREF at 0x{:x}: {:#?}", erefaddr, eref);
+    let ptr_eref = nb
+        .parentEntityRef
+        .with_offset(game_assembly.BaseAddress as i64);
+
+    let eref: EntityRef = ptr_eref.vread(&vm, dirbase, 0);
+    println!("EREF at {}: {:#?}", ptr_eref, eref);
 }
 
 fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
@@ -209,6 +158,9 @@ Process Context Commands:
     eprocess              show full EPROCESS for the open process [or process with PID $1]
     peb                   print the full PEB of the open process
     sections              get sections for module $1
+    dumpmodules           dumps all modules into path $1
+    whereis               displays which section of which module the PVA $1 falls into
+    pmemdumpall
     patch
     vpdisasm
     tebs
@@ -297,6 +249,97 @@ fn dispatch_commands(
             }
             None => println!(
                 "usage: pmemmem <hVA> <hSize> <hexNeedle> (after entering a process context)"
+            ),
+        },
+        "dumpmodules" => match context {
+            Some(info) => {
+                let pathstr = match parts.get(1) {
+                    None => {
+                        println!("usage: dumpmodules <outputPath>");
+                        return None;
+                    }
+                    Some(p) => p,
+                };
+                let p = std::path::Path::new(pathstr);
+                if !p.exists() || !p.is_dir() {
+                    println!("Make sure path {} exists and is a directory", pathstr);
+                    return None;
+                }
+                let dtb = info.eprocess.Pcb.DirectoryTableBase;
+                for module in vm.get_process_modules(info).iter() {
+                    let name = match module.BaseDllName.resolve(&vm, Some(dtb), Some(64)) {
+                        None => format!("{:#18x}", module.BaseAddress),
+                        Some(n) => {
+                            if n.is_empty() || n.contains('\0') {
+                                format!("{:#18x}", module.BaseAddress)
+                            } else {
+                                n
+                            }
+                        }
+                    }
+                    .trim()
+                    .to_string();
+                    let outfile = p.join(format!("{}.bin", name));
+                    let modulemem = vm.dump_module_vmem(dtb, module);
+                    match std::fs::write(&outfile, &modulemem) {
+                        Ok(_) => {
+                            println!("{} bytes written to file '{:?}'", modulemem.len(), outfile)
+                        }
+                        Err(e) => println!(
+                            "Error while writing to file '{:?}': {}",
+                            &outfile,
+                            e.to_string(),
+                        ),
+                    }
+                }
+            }
+            None => println!("usage: dumpmodules <outputPath> (after entering a process context"),
+        },
+        "pmemdumpall" => match context {
+            Some(info) => {
+                let p = std::path::Path::new(match parts.get(1) {
+                    None => {
+                        println!(
+                            "usage: pmemdumpall <pathMemSectionMapFile> (after entering a process context)"
+                        );
+                        return None;
+                    }
+                    Some(p) => p,
+                });
+                let parent_dir = match p.parent() {
+                    Some(pa) => pa,
+                    None => {
+                        println!("No parent dir exists on that path -- specify a file");
+                        return None;
+                    }
+                };
+                let m = match std::fs::read_to_string(p) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        println!("failed to read map file: {}", e);
+                        return None;
+                    }
+                };
+                let layout = match libvirtdma::vm::mlayout::MemoryLayout::from_x64dbg_table(&m) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        println!("failed to parse layout: {}", e);
+                        return None;
+                    }
+                };
+                let dtb = info.eprocess.Pcb.DirectoryTableBase;
+                for (begin, section) in layout.sections.iter() {
+                    let len = section.range.end - section.range.start;
+                    print!("Dumping {} bytes from 0x{:x}...", len, begin);
+                    let output = vm.vreadvec(dtb, section.range.start, len);
+                    match std::fs::write(parent_dir.join(format!("{:x}.bin", begin)), output) {
+                        Ok(_) => println!("OK"),
+                        Err(e) => println!("ERR({})", e.to_string()),
+                    };
+                }
+            }
+            None => println!(
+                "usage: pmemdumpall <pathMemSectionMapFile> (after entering a process context)"
             ),
         },
         "pmem2file" => {
@@ -727,6 +770,46 @@ fn dispatch_commands(
             Some(info) => vm.list_process_modules(info),
             None => println!("usage: modules (after entering a process context"),
         },
+        "whereis" => match context {
+            None => println!("usage: whereis <hVA> (after entering a process context)"),
+            Some(info) => {
+                if parts.len() != 2 {
+                    println!("usage: whereis <hVA>")
+                } else {
+                    let dtb = info.eprocess.Pcb.DirectoryTableBase;
+                    let hva = match parse_u64(&parts[1], false) {
+                        Some(h) => h,
+                        None => {
+                            println!("unable to parse the hVA");
+                            return None;
+                        }
+                    };
+                    for module in vm.get_process_modules(info).iter() {
+                        for section in vm.get_module_sections(info, module).iter() {
+                            let begin = module.BaseAddress + section.VirtualAddress as u64;
+                            let end = begin + section.SizeOfRawData as u64; // section.PhysicalAddressOrVirtualSize
+                            if hva >= begin && hva < end {
+                                println!(
+                                    "0x{:x} is in the {} section of module {}",
+                                    hva,
+                                    section.get_name(),
+                                    module
+                                        .BaseDllName
+                                        .resolve(&vm, Some(dtb), Some(128))
+                                        .unwrap_or("unknown".to_string())
+                                );
+                                return None;
+                            }
+                        }
+                    }
+                    // todo: heaps
+                    for heap in vm.get_heaps_with_dirbase(dtb, info.eprocessPhysAddr).iter() {
+                        // heap
+                    }
+                    // todo: stacks
+                }
+            }
+        },
         "sections" => match context {
             Some(info) => {
                 if parts.len() != 2 {
@@ -746,30 +829,7 @@ fn dispatch_commands(
                                     "  PhysicalAddrOrVSize:  0x{:x}",
                                     section.PhysicalAddressOrVirtualSize
                                 );
-                                // println!("  VirtualAddress:       0x{:x}", section.VirtualAddress);
-                                // println!("  SizeOfRawData:        0x{:x}", section.SizeOfRawData);
-                                // println!(
-                                //     "  PointerToRawData:     0x{:x}",
-                                //     section.PointerToRawData
-                                // );
-                                // println!(
-                                //     "  PointerToRelocations: 0x{:x}",
-                                //     section.PointerToRelocations
-                                // );
-                                // println!(
-                                //     "  PointerToLinenumbers: 0x{:x}",
-                                //     section.PointerToLinenumbers
-                                // );
-                                // println!(
-                                //     "  NumberOfRelocations:  0x{:x}",
-                                //     section.NumberOfRelocations
-                                // );
-                                // println!(
-                                //     "  NumberOfLinenumbers:  0x{:x}",
-                                //     section.NumberOfLinenumbers
-                                // );
-                                // println!("  Characteristics:      0x{:x}", section.Characteristics);
-                                // todo: needs fixing
+                                // TODO: needs fixing
                                 // if section_name.starts_with(".reloc") {
                                 //     let dtb = info.eprocess.Pcb.DirectoryTableBase;
                                 //     let va_reloc =

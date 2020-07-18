@@ -34,18 +34,14 @@ impl UnicodeString {
                 }
             }
             None => self.length,
+        } as u64;
+        let data = match dirbase {
+            Some(dbase) => vm.vreadvec(dbase, self.buffer, readlen),
+            None => vm.readvec(self.buffer, readlen),
         };
-        let mut input: Vec<u16> = Vec::new();
-        for offset in 0..readlen {
-            let addr = self.buffer + offset as u64 * std::mem::size_of::<u16>() as u64;
-            let current: u16 = match dirbase {
-                Some(dbase) => vm.vread(dbase, addr),
-                None => vm.read(addr),
-            };
-            input.push(current);
-        }
-        let charlen = readlen / 2;
-        let s = unsafe { widestring::U16String::from_ptr(input.as_ptr(), charlen as usize) };
+        let s = unsafe {
+            widestring::U16String::from_ptr(data.as_ptr() as *const u16, readlen as usize / 2)
+        };
         Some(s.to_string_lossy())
     }
 }

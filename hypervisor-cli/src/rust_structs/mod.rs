@@ -1,26 +1,23 @@
 #![allow(non_snake_case, dead_code)]
-use std::ffi::c_void;
-
-pub type BaseNetworkableClassPtr = *mut c_void;
-pub type MonitorPtr = *mut c_void;
+use libvirtdma::RemotePtr;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseNetworkable {
-    pub(crate) klass: BaseNetworkableClassPtr,
-    pub(crate) monitor: MonitorPtr,
-    pub(crate) object_m_CachedPtr: *mut c_void,
+    pub(crate) klass: RemotePtr,
+    pub(crate) monitor: RemotePtr,
+    pub(crate) object_m_CachedPtr: RemotePtr,
     pub(crate) justCreated_k__BackingField: bool,
-    pub(crate) entityDestroy_deferredAction: u64,
-    pub(crate) postNetworkUpdateComponents_collectionsList: *mut c_void,
-    pub(crate) parentEntityRef: u64,
-    pub(crate) children_baseEntitylist: *mut c_void,
+    pub(crate) entityDestroy_deferredAction: RemotePtr,
+    pub(crate) postNetworkUpdateComponents_collectionsList: RemotePtr,
+    pub(crate) parentEntityRef: RemotePtr,
+    pub(crate) children_baseEntitylist: RemotePtr,
     pub(crate) prefabID: u32,
     pub(crate) globalBroadcast: bool,
-    pub(crate) net_Network_Networkable_o: *mut c_void,
+    pub(crate) net_Network_Networkable_o: RemotePtr,
     pub(crate) isDestroyed_k__BackingField: bool,
-    pub(crate) prefabNameStrRef: *mut c_void,
-    pub(crate) prefabNameWithoutExtensionStrRef: *mut c_void,
+    pub(crate) prefabNameStrRef: RemotePtr,
+    pub(crate) prefabNameWithoutExtensionStrRef: RemotePtr,
 }
 
 #[repr(C)]
@@ -58,7 +55,7 @@ pub struct LastObjectBase {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct EntityRef {
-    pub(crate) ent_cached: *mut c_void, // BaseEntity_o*
+    pub(crate) ent_cached: RemotePtr, // BaseEntity_o*
     pub(crate) id_cached: u32,
 }
 

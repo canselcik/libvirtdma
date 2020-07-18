@@ -12,6 +12,8 @@ pub mod binding_rw;
 pub mod binding_search;
 pub mod nativebinding;
 
+pub mod mlayout;
+
 const PAGE_OFFSET_SIZE: u64 = 12;
 const PMASK: u64 = (!0xfu64 << 8) & 0xfffffffffu64;
 const KFIXC: u64 = 0x80000000;

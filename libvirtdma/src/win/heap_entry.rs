@@ -11,9 +11,10 @@
 use crate::win::list_entry::ListEntry;
 use crate::win::misc::Bytes336;
 use crate::win::proc_heap_entry::{HeapBlock, HeapBlockOrRegion, ProcessHeapEntry};
+use std::ffi::c_void;
 
 //0x2c0 bytes (sizeof)
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 #[repr(C)]
 pub struct HEAP {
     pub Segment: HeapSegment,
@@ -65,15 +66,15 @@ pub struct HEAP {
     // struct _HEAP_TUNING_PARAMETERS TuningParameters;                        //0x2b0
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 #[repr(C)]
 pub struct HeapSegment {
     pub Entry: HEAP_ENTRY,                   //0x0
     pub SegmentSignature: u32,               //0x10
     pub SegmentFlags: u32,                   //0x14
     pub SegmentListEntry: ListEntry,         //0x18
-    pub Heap: u64,                           //0x28 selfptr
-    pub BaseAddress: u64,                    //0x30
+    pub Heap: *mut c_void,                   //0x28 selfptr
+    pub BaseAddress: *mut c_void,            //0x30
     pub NumberOfPages: u32,                  //0x38
     pub FirstEntry: *mut HEAP_ENTRY,         //0x40
     pub LastValidEntry: *mut HEAP_ENTRY,     //0x48

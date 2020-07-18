@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 use crate::rust_structs::{
-    BaseNetworkable, DotNetList, EntityRef, GameObjectManager, LastObjectBase,
+    BaseNetworkable, DotNetList, EntityRef, GameObject, GameObjectManager, LastObjectBase,
 };
 use colored::*;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
@@ -81,6 +81,12 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
 
     let lto: LastObjectBase = vm.vread(rust_dirbase, gom.lastTaggedObject as u64);
     println!("LTO: {:#?}", lto);
+
+    let game_obj: GameObject = vm.vread(rust_dirbase, lto.lastObject as u64);
+    println!(
+        "GameObject at 0x{:x}: {:#?}",
+        lto.lastObject as u64, game_obj
+    );
 }
 
 fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_assembly: &LdrModule) {
@@ -125,7 +131,7 @@ fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
             return;
         }
     };
-    let game_assembly = match modules.get("") {
+    let game_assembly = match modules.get("GameAssembly.dll") {
         Some(up) => up,
         None => {
             println!("Unable to find GameAssembly.dll module in RustClient.exe");

@@ -19,7 +19,7 @@ macro_rules! makeByteRange {
     };
 }
 
-macro_rules! makeTypeRange {
+macro_rules! make_type_range {
     ($name:ident, $typ: tt, $length:expr) => {
         #[derive(Copy, Clone)]
         pub struct $name([$typ; $length]);
@@ -35,6 +35,7 @@ makeByteRange!(Bytes1024, 1024);
 makeByteRange!(Bytes1520, 0x5f0);
 makeByteRange!(Bytes168, 0xA8);
 makeByteRange!(Bytes24, 24);
+makeByteRange!(Bytes36, 0x24);
 makeByteRange!(Bytes16, 0x10);
 makeByteRange!(Bytes8, 0x8);
 makeByteRange!(Bytes272, 0x110);
@@ -54,6 +55,6 @@ makeByteRange!(Bytes1256, 1256);
 makeByteRange!(Bytes496, 496);
 makeByteRange!(Bytes336, 0x150);
 
-makeTypeRange!(DoubleBytes261, u16, 261);
-makeTypeRange!(VoidPointers64, u64, 64);
-makeTypeRange!(VoidPointers233, u64, 233);
+make_type_range!(DoubleBytes261, u16, 261);
+make_type_range!(VoidPointers64, u64, 64);
+make_type_range!(VoidPointers233, u64, 233);

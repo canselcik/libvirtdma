@@ -60,11 +60,11 @@ pub struct EntityRef {
 }
 
 #[repr(C)]
-// #[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct GameObject {
     pub(crate) pad_0x0000: [u8; 0x8],
     pub(crate) m_instanceID: i32,
-    pub(crate) pad_0x000C: [u8; 0x24],
+    pub(crate) pad_0x000C: libvirtdma::win::misc::Bytes36,
     pub(crate) m_label: i32,
     pub(crate) pad_0x0034: [u8; 0x4],
     pub(crate) m_size: i32,

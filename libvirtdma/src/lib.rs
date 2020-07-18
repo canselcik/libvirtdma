@@ -15,26 +15,24 @@ pub use vm::binding_disasm::print_disasm as disasm;
 
 pub mod win;
 
+extern crate static_assertions as sa;
+
+sa::const_assert!(std::mem::size_of::<TypedRemotePtr<i32>>() == std::mem::size_of::<RemotePtr>());
+sa::const_assert!(std::mem::size_of::<u64>() == std::mem::size_of::<RemotePtr>());
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct TypedRemotePtr<T> {
     ptr: RemotePtr,
     typ: std::marker::PhantomData<*const T>,
 }
 
 impl<T> TypedRemotePtr<T> {
-    pub fn virt(addr: u64, dtb: u64) -> Self {
+    pub fn new(addr: u64) -> Self {
         Self {
-            ptr: RemotePtr::virt(addr, dtb),
+            ptr: RemotePtr::new(addr),
             typ: Default::default(),
         }
     }
-
-    pub fn phys(addr: u64) -> Self {
-        Self {
-            ptr: RemotePtr::phys(addr),
-            typ: Default::default(),
-        }
-    }
-
     pub fn read(&self, vm: &VMBinding, offset: i64) -> T {
         self.ptr.read(vm, offset)
     }
@@ -77,20 +75,11 @@ impl<T> std::fmt::Display for TypedRemotePtr<T> {
 #[derive(Clone, Copy)]
 pub struct RemotePtr {
     addr: u64,
-    dtb: Option<u64>,
 }
 
 impl RemotePtr {
-    fn new(addr: u64, dtb: Option<u64>) -> Self {
-        Self { addr, dtb }
-    }
-
-    pub fn virt(addr: u64, dtb: u64) -> Self {
-        Self::new(addr, Some(dtb))
-    }
-
-    pub fn phys(addr: u64) -> Self {
-        Self::new(addr, None)
+    pub fn new(addr: u64) -> Self {
+        Self { addr }
     }
 
     pub fn read<T>(&self, vm: &VMBinding, offset: i64) -> T {
@@ -124,7 +113,6 @@ impl RemotePtr {
 
     pub fn with_offset(&self, offset: i64) -> Self {
         Self {
-            dtb: self.dtb.clone(),
             addr: self.addr.wrapping_add(offset as u64),
         }
     }

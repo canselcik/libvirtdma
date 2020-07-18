@@ -14,6 +14,8 @@ MODULE_LICENSE("GPL");
 
 #define KSYMDEC(x) static typeof(&x) _##x = NULL
 #define KSYM(x) _##x
+
+// This won't be possible beginning with Linux 5.7+ as this symbol won't be exported at all.
 #define KSYMDEF(x) _##x = (typeof(&x))kallsyms_lookup_name(#x)
 
 #define VMREAD_IOCTL_MAGIC 0x42

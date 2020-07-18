@@ -1,5 +1,4 @@
-obj-m += vmread.o
-vmread-objs := kmem.o
+obj-m += kmem.o
 MCFLAGS += -O3
 ccflags-y += ${MCFLAGS}
 CC += ${MCFLAGS}
@@ -21,7 +20,7 @@ all:
 
 build-module: $(KOUTPUT_MAKEFILE)
 	make -C $(KDIR) M=$(KOUTPUT) src=$(PWD) modules
-	cp $(KOUTPUT)/vmread.ko $(KOUTPUT)/../vmread.ko
+	cp $(KOUTPUT)/kmem.ko $(KOUTPUT)/../vmread.ko
 
 $(KOUTPUT):
 	mkdir -p "$@"

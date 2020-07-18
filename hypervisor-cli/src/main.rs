@@ -125,10 +125,10 @@ fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
             return;
         }
     };
-    let game_assembly = match modules.get("GameAssembly.dll") {
+    let game_assembly = match modules.get("") {
         Some(up) => up,
         None => {
-            println!("Unable to find GameAssembly.dll module in GameAssembly.exe");
+            println!("Unable to find GameAssembly.dll module in RustClient.exe");
             return;
         }
     };

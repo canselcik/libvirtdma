@@ -9,6 +9,7 @@ use libvirtdma::vm::VMBinding;
 use libvirtdma::win::eprocess::{PsProtectedSigner, PsProtectedType};
 use libvirtdma::win::peb_ldr_data::LdrModule;
 use libvirtdma::win::teb::TEB;
+use libvirtdma::RemotePtr;
 use linefeed::{Interface, ReadResult};
 
 mod asm;
@@ -37,6 +38,7 @@ fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
 fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_player: &LdrModule) {
     let rust_dirbase = rust.eprocess.Pcb.DirectoryTableBase;
     let module_mem = vm.dump_module_vmem(rust_dirbase, unity_player);
+
     let matches = match VMBinding::pmemmem(
         &module_mem,
         "488905????????4883c438c348c705????????????????4883c438c3cccccccccc48",
@@ -79,14 +81,39 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
     let gom: GameObjectManager = vm.vread(rust_dirbase, gom_addr);
     println!("GOM: {:#?}", gom);
 
-    let lto: LastObjectBase = vm.vread(rust_dirbase, gom.lastTaggedObject as u64);
-    println!("LTO: {:#?}", lto);
+    let container: RemotePtr = gom.pool.vread(&vm, rust_dirbase, 0);
+    let mut offset = 0;
+    loop {
+        let obj: u64 = container.vread(&vm, rust_dirbase, offset);
+        if obj == gom_addr || obj == 0 {
+            break;
+        }
+        let gobj_addr: u64 = vm.vread(rust_dirbase, obj + 0x10);
+        let gobj_name = vm.read_cstring_from_physical_mem(
+            vm.native_translate(rust_dirbase, gobj_addr),
+            Some(255),
+        );
+        let tag: u16 = vm.vread(rust_dirbase, obj + 0x54);
+        match tag {
+            5 => println!("ent5"),
+            6 => println!("6 nicer"),
+            20011 => println!("20011 nicee"),
+            unk => println!(
+                "ent {} {} @ 0x{:x} (obj was at 0x{:x}",
+                unk, gobj_name, gobj_addr, obj
+            ),
+        }
+        offset += 0x8;
+    }
 
-    let game_obj: GameObject = vm.vread(rust_dirbase, lto.lastObject as u64);
-    println!(
-        "GameObject at 0x{:x}: {:#?}",
-        lto.lastObject as u64, game_obj
-    );
+    let preprocessed = gom.preProcessed.vread(vm, rust_dirbase, 0);
+    println!("PrefabPreProcess: {:#?}", preprocessed);
+
+    // let game_obj: GameObject = vm.vread(rust_dirbase, lto.lastObject as u64);
+    // println!(
+    //     "GameObject at 0x{:x}: {:#?}",
+    //     lto.lastObject as u64, game_obj
+    // );
 }
 
 fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_assembly: &LdrModule) {
@@ -145,11 +172,17 @@ fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
         game_assembly.BaseAddress
     );
 
+    println!("===================");
+
     println!("Processing UnityPlayer.dll module...");
     rust_unity_player_module(vm, rust, &unity_player);
 
+    println!("===================");
+
     println!("Processing GameAssembly.dll module...");
     rust_game_assembly_module(vm, rust, &game_assembly);
+
+    println!("===================");
 }
 
 fn show_usage() {
@@ -166,6 +199,8 @@ Process Context Commands:
     sections              get sections for module $1
     dumpmodules           dumps all modules into path $1
     whereis               displays which section of which module the PVA $1 falls into
+    deref                 grab a 64-bit pointer from expression PVA $1
+    transmute
     pmemdumpall
     patch
     vpdisasm
@@ -347,6 +382,107 @@ fn dispatch_commands(
             None => println!(
                 "usage: pmemdumpall <pathMemSectionMapFile> (after entering a process context)"
             ),
+        },
+        "transmute" | "tr" | "struct" => match context {
+            Some(info) => {
+                if parts.len() != 3 {
+                    println!("usage: transmute <hVA> <transmuteString>")
+                } else {
+                    let hVA = match parse_u64(&parts[1], false) {
+                        Some(h) => h,
+                        None => {
+                            println!("unable to parse hVA");
+                            return None;
+                        }
+                    };
+                    let dtb = info.eprocess.Pcb.DirectoryTableBase;
+
+                    let mut last_type = "";
+                    let eval = |i, component, offset| -> Result<i64, ()> {
+                        match component {
+                            "u8" | "uint8_t" | "byte" => {
+                                let data: u8 = vm.vread(dtb, hVA + offset);
+                                println!("  (+0x{:x}) ${} = 0x{:0>2x}", offset, i, data);
+                                Ok(1)
+                            }
+                            "bool" => {
+                                let data: bool = vm.vread(dtb, hVA + offset);
+                                println!("  (+0x{:x}) ${} = {}", offset, i, data);
+                                Ok(1)
+                            }
+                            "u64" | "uint64_t" | "ptr" | "pointer" => {
+                                let data: u64 = vm.vread(dtb, hVA + offset);
+                                println!("  (+0x{:x}) ${} = 0x{:0>16x}", offset, i, data);
+                                Ok(8)
+                            }
+                            unk => {
+                                if unk.starts_with("*") {
+                                    let num: Result<u64, _> = (&unk[1..]).parse();
+                                    match num {
+                                        Ok(times) => Ok(times as i64 * -1),
+                                        Err(e) => {
+                                            println!(
+                                                "Failed to parse the repeated member: {}",
+                                                e.to_string()
+                                            );
+                                            Err(())
+                                        }
+                                    }
+                                } else {
+                                    println!("Aborting due to unknown type: {}", unk);
+                                    Err(())
+                                }
+                            }
+                        }
+                    };
+                    let mut repeated_so_far = 0usize;
+                    let mut current_offset = 0u64;
+                    println!("0x{:0>16x} {{", hVA);
+                    for (i, component) in parts[2].split(",").enumerate() {
+                        match eval(i + repeated_so_far, component, current_offset) {
+                            Ok(fwd) => {
+                                if fwd > 0 {
+                                    current_offset += fwd as u64;
+                                    last_type = component;
+                                } else {
+                                    for _ in 0..(-1 * fwd) {
+                                        current_offset +=
+                                            eval(i + repeated_so_far, last_type, current_offset)
+                                                .unwrap()
+                                                as u64;
+                                        repeated_so_far += 1;
+                                    }
+                                }
+                            }
+                            Err(_) => {
+                                break;
+                            }
+                        }
+                    }
+                    println!("}}");
+                }
+            }
+            None => {
+                println!("usage: deref <hVA> <transmuteString>(after entering a process context)")
+            }
+        },
+        "deref" => match context {
+            Some(info) => {
+                if parts.len() != 2 {
+                    println!("usage: deref <hVA>")
+                } else {
+                    let hVA = match parse_u64(&parts[1], false) {
+                        Some(h) => h,
+                        None => {
+                            println!("unable to parse hVA");
+                            return None;
+                        }
+                    };
+                    let data: RemotePtr = vm.vread(info.eprocess.Pcb.DirectoryTableBase, hVA);
+                    println!("{}", data);
+                }
+            }
+            None => println!("usage: deref <hVA>(after entering a process context)"),
         },
         "pmem2file" => {
             if parts.len() != 4 {

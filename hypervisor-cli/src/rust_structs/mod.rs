@@ -1,11 +1,11 @@
 #![allow(non_snake_case, dead_code)]
-use libvirtdma::RemotePtr;
+use libvirtdma::{RemotePtr, TypedRemotePtr};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseNetworkable {
-    pub(crate) klass: RemotePtr,
-    pub(crate) monitor: RemotePtr,
+    // pub(crate) klass: RemotePtr,
+    // pub(crate) monitor: RemotePtr,
     pub(crate) object_m_CachedPtr: RemotePtr,
     pub(crate) justCreated_k__BackingField: bool,
     pub(crate) entityDestroy_deferredAction: RemotePtr,
@@ -23,18 +23,41 @@ pub struct BaseNetworkable {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DotNetList<T> {
-    pub(crate) methodTablePtr: u32,
-    pub(crate) length: u32,
+    pub(crate) methodTablePtr: u64,
+    pub(crate) length: u64,
     pub(crate) firstElement: T,
+}
+
+// #[repr(C)]
+// #[derive(Clone, Copy, Debug)]
+// pub struct GameObjectManager {
+//     pub(crate) lastTaggedObject: *mut LastObjectBase,
+//     pub(crate) taggedObjects: *mut BaseObject,
+//     pub(crate) lastActiveObject: *mut LastObjectBase,
+//     pub(crate) activeObjects: *mut BaseObject,
+// }
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct GameObjectManager {
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
+    pub preProcessed: TypedRemotePtr<PrefabPreProcess>,
+    pub pool: RemotePtr, // PrefabPoolCollection_o
+    pub Clientside: bool,
+    pub Serverside: bool,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct GameObjectManager {
-    pub(crate) lastTaggedObject: *mut LastObjectBase,
-    pub(crate) taggedObjects: *mut BaseObject,
-    pub(crate) lastActiveObject: *mut LastObjectBase,
-    pub(crate) activeObjects: *mut BaseObject,
+pub struct PrefabPreProcess {
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
+    pub isClientside: bool,
+    pub isServerside: bool,
+    pub isBundling: bool,
+    pub prefabList: RemotePtr, // System_Collections_Generic_Dictionary_string__GameObject__o
+    pub destroyList: RemotePtr, // System_Collections_Generic_List_Component__o
+    pub cleanupList: RemotePtr, // System_Collections_Generic_List_GameObject__o
 }
 
 #[repr(C)]

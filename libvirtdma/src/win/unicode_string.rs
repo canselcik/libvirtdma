@@ -19,12 +19,19 @@ impl std::fmt::Debug for UnicodeString {
 }
 
 impl UnicodeString {
+    pub fn looks_invalid(&self) -> bool {
+        self.length == 0xFFFF && self.buffer == 0xFFFFFFFFFFFFFFFF
+    }
+
     pub fn resolve(
         &self,
         vm: &VMBinding,
         dirbase: Option<u64>,
         max_len: Option<u16>,
     ) -> Option<String> {
+        if self.looks_invalid() {
+            return Some("<UNABLE_TO_READ_LOOKS_INVALID>".to_string());
+        }
         let readlen = match max_len {
             Some(l) => {
                 if l < self.length {

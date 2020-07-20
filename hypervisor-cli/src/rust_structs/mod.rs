@@ -1,57 +1,161 @@
 #![allow(non_snake_case, dead_code)]
+use crate::rust_structs::il2cpp::{DotNetArray, DotNetDict, DotNetList, DotNetStack, DotNetString};
+use crate::rust_structs::ue::{
+    UEBehaviour, UEBounds, UECollider, UEComponent, UEGameObject, UELODGroup, UEParticleSystem,
+    UERenderer, UERigidbody, UEVec3,
+};
 use libvirtdma::{RemotePtr, TypedRemotePtr};
+
+pub mod il2cpp;
+pub mod ue;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseNetworkable {
-    // pub(crate) klass: RemotePtr,
-    // pub(crate) monitor: RemotePtr,
-    pub(crate) object_m_CachedPtr: RemotePtr,
-    pub(crate) justCreated_k__BackingField: bool,
-    pub(crate) entityDestroy_deferredAction: RemotePtr,
-    pub(crate) postNetworkUpdateComponents_collectionsList: RemotePtr,
-    pub(crate) parentEntityRef: RemotePtr,
-    pub(crate) children_baseEntitylist: RemotePtr,
-    pub(crate) prefabID: u32,
-    pub(crate) globalBroadcast: bool,
-    pub(crate) net_Network_Networkable_o: RemotePtr,
-    pub(crate) isDestroyed_k__BackingField: bool,
-    pub(crate) prefabNameStrRef: RemotePtr,
-    pub(crate) prefabNameWithoutExtensionStrRef: RemotePtr,
+    pub klass: RemotePtr,
+    pub monitor: RemotePtr,
+    pub object_m_CachedPtr: RemotePtr,
+    pub justCreated_k__BackingField: bool,
+    pub entityDestroy_deferredAction: RemotePtr,
+    pub postNetworkUpdateComponents: TypedRemotePtr<DotNetList<UEComponent>>,
+    pub parentEntityRef: TypedRemotePtr<EntityRef>,
+    pub children: TypedRemotePtr<DotNetList<BaseEntity>>,
+    pub prefabID: u32,
+    pub globalBroadcast: bool,
+    pub net_Network_Networkable_o: RemotePtr,
+    pub isDestroyed_k__BackingField: bool,
+    pub prefabName: TypedRemotePtr<DotNetString>,
+    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString>,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct DotNetList<T> {
-    pub(crate) methodTablePtr: u64,
-    pub(crate) length: u64,
-    pub(crate) firstElement: T,
-}
-
-// #[repr(C)]
-// #[derive(Clone, Copy, Debug)]
-// pub struct GameObjectManager {
-//     pub(crate) lastTaggedObject: *mut LastObjectBase,
-//     pub(crate) taggedObjects: *mut BaseObject,
-//     pub(crate) lastActiveObject: *mut LastObjectBase,
-//     pub(crate) activeObjects: *mut BaseObject,
-// }
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GameObjectManager {
-    // pub klass: RemotePtr,
-    // pub monitor: RemotePtr,
+    pub klass: RemotePtr,
+    pub monitor: RemotePtr,
     pub preProcessed: TypedRemotePtr<PrefabPreProcess>,
-    pub pool: RemotePtr, // PrefabPoolCollection_o
+    pub pool: TypedRemotePtr<PrefabPoolCollection>,
     pub Clientside: bool,
     pub Serverside: bool,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct EntityRef {
+    pub ent_cached: TypedRemotePtr<BaseEntity>,
+    pub id_cached: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct BaseEntity {
+    pub klass: RemotePtr,
+    pub monitor: RemotePtr,
+    pub Object_m_CachedPtr: TypedRemotePtr<i32>,
+    pub justCreated_k__BackingField: bool,
+    pub entityDestroy_deferredAction: RemotePtr,
+    pub postNetworkUpdateComponents: TypedRemotePtr<DotNetList<UEComponent>>,
+    pub parentEntityRef: TypedRemotePtr<EntityRef>,
+    pub children: TypedRemotePtr<DotNetList<BaseEntity>>,
+    pub prefabID: u32,
+    pub globalBroadcast: bool,
+    pub net_Network_Networkable_o: RemotePtr,
+    pub isDestroyed_k__BackingField: bool,
+    pub prefabName: TypedRemotePtr<DotNetString>,
+    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString>,
+    pub ragdoll: RemotePtr,      // to Ragdoll_o
+    pub positionLerp: RemotePtr, // to PositionLerp_o
+    pub menuOptions: RemotePtr,  // to System_Collections_Generic_List_Option__o
+    pub broadcastProtocol: u32,
+    pub links: RemotePtr, // to System_Collections_Generic_List_EntityLink__o
+    pub linkedToNeighbours: bool,
+    pub updateParentingAction: RemotePtr, // to System_Action_o
+    pub addedToParentEntity: TypedRemotePtr<BaseEntity>,
+    pub itemSkin: RemotePtr,    // to ItemSkin_o
+    pub entitySlots: RemotePtr, // to EntityRef_array
+    pub triggers: RemotePtr,    // to System_Collections_Generic_List_TriggerBase__o
+    pub isVisible: bool,
+    pub isAnimatorVisible: bool,
+    pub isShadowVisible: bool,
+    pub localOccludee: OccludeeSphere,
+    pub bounds: UEBounds,
+    pub impactEffect: TypedRemotePtr<GameObjectRef>,
+    pub enableSaving: bool,
+    pub syncPosition: bool,
+    pub model: RemotePtr, // to Model_o
+    pub flags: i32,
+    pub parentBone: u32,
+    pub skinID: u64,
+    pub _components: RemotePtr, // to EntityComponentBase_array
+    pub _name: DotNetString,
+    pub _OwnerID_k__BackingField: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OccludeeSphere {
+    pub id: i32,
+    pub state: RemotePtr, // to OccludeeState_o
+    pub sphere: OcclusionCullingSphere,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct OcclusionCullingSphere {
+    pub position: UEVec3,
+    pub radius: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct GameObjectRef {
+    pub klass: RemotePtr,
+    pub monitor: RemotePtr,
+    pub guid: TypedRemotePtr<DotNetString>,
+    pub ResourceRef_1__cachedObject: TypedRemotePtr<UEGameObject>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PrefabPoolCollection {
+    pub klass: RemotePtr,   // PrefabPoolCollection_c
+    pub monitor: RemotePtr, // void*
+    pub storage: TypedRemotePtr<DotNetDict<u32, PrefabPoolObject>>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PrefabPoolObject {
+    pub klass: RemotePtr,   // PrefabPool_c
+    pub monitor: RemotePtr, // void*
+    pub stack: TypedRemotePtr<DotNetStack<PoolableObject>>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PoolableObject {
+    pub klass: RemotePtr,   // Poolable_c*
+    pub monitor: RemotePtr, // void*
+    pub Object_m_CachedPtr: TypedRemotePtr<i32>,
+    pub prefabID: u32,
+    pub behaviours: DotNetArray<UEBehaviour>,
+    pub rigidbodies: DotNetArray<UERigidbody>,
+    pub colliders: DotNetArray<UECollider>,
+    pub lodgroups: DotNetArray<UELODGroup>,
+    pub renderers: DotNetArray<UERenderer>,
+    pub particles: DotNetArray<UEParticleSystem>,
+    pub behaviourStates: DotNetArray<bool>,
+    pub rigidbodyStates: DotNetArray<bool>,
+    pub colliderStates: DotNetArray<bool>,
+    pub lodgroupStates: DotNetArray<bool>,
+    pub rendererStates: DotNetArray<bool>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct PrefabPreProcess {
-    // pub klass: RemotePtr,
-    // pub monitor: RemotePtr,
+    pub klass: RemotePtr,
+    pub monitor: RemotePtr,
     pub isClientside: bool,
     pub isServerside: bool,
     pub isBundling: bool,
@@ -59,6 +163,8 @@ pub struct PrefabPreProcess {
     pub destroyList: RemotePtr, // System_Collections_Generic_List_Component__o
     pub cleanupList: RemotePtr, // System_Collections_Generic_List_GameObject__o
 }
+
+// ===========
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -73,13 +179,6 @@ pub struct BaseObject {
 pub struct LastObjectBase {
     pub(crate) pad_0x0000: libvirtdma::win::misc::Bytes16,
     pub(crate) lastObject: *mut GameObject,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct EntityRef {
-    pub(crate) ent_cached: RemotePtr, // BaseEntity_o*
-    pub(crate) id_cached: u32,
 }
 
 #[repr(C)]

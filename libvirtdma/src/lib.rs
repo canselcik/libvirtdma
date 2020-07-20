@@ -41,6 +41,11 @@ impl<T> TypedRemotePtr<T> {
         self.ptr.vread(vm, dtb, offset)
     }
 
+    #[inline(always)]
+    pub fn addr(&self) -> u64 {
+        self.ptr.addr
+    }
+
     pub fn readvec(&self, vm: &VMBinding, offset: i64, len: Option<u64>) -> Box<[u8]> {
         let len_to_read = match len {
             Some(l) => l,

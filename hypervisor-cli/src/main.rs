@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
-use crate::rust_structs::{
-    BaseNetworkable, DotNetList, EntityRef, GameObject, GameObjectManager, LastObjectBase,
-};
+use crate::rust_structs::il2cpp::DotNetList;
+use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager};
 use colored::*;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
 use libvirtdma::vm::mlayout::parse_u64;
@@ -81,7 +80,8 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
     let gom: GameObjectManager = vm.vread(rust_dirbase, gom_addr);
     println!("GOM: {:#?}", gom);
 
-    let container: RemotePtr = gom.pool.vread(&vm, rust_dirbase, 0);
+    let container: RemotePtr = vm.vread(rust_dirbase, gom.pool.addr());
+    //  gom.pool.vread(&vm, rust_dirbase, 0);
     let mut offset = 0;
     loop {
         let obj: u64 = container.vread(&vm, rust_dirbase, offset);
@@ -136,11 +136,8 @@ fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_ass
     );
     //public List<Component> ; // 0x28
 
-    let ptr_eref = nb
-        .parentEntityRef
-        .with_offset(game_assembly.BaseAddress as i64);
-
-    let eref: EntityRef = ptr_eref.vread(&vm, dirbase, 0);
+    let ptr_eref = nb.parentEntityRef.addr() + game_assembly.BaseAddress;
+    let eref: EntityRef = vm.vread(dirbase, ptr_eref);
     println!("EREF at {}: {:#?}", ptr_eref, eref);
 }
 

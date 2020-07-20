@@ -12,8 +12,8 @@ pub mod ue;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseNetworkable {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub object_m_CachedPtr: RemotePtr,
     pub justCreated_k__BackingField: bool,
     pub entityDestroy_deferredAction: RemotePtr,
@@ -24,15 +24,15 @@ pub struct BaseNetworkable {
     pub globalBroadcast: bool,
     pub net_Network_Networkable_o: RemotePtr,
     pub isDestroyed_k__BackingField: bool,
-    pub prefabName: TypedRemotePtr<DotNetString>,
-    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString>,
+    pub prefabName: TypedRemotePtr<DotNetString<1>>,
+    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString<1>>,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GameObjectManager {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub preProcessed: TypedRemotePtr<PrefabPreProcess>,
     pub pool: TypedRemotePtr<PrefabPoolCollection>,
     pub Clientside: bool,
@@ -61,8 +61,8 @@ pub struct BaseEntity {
     pub globalBroadcast: bool,
     pub net_Network_Networkable_o: RemotePtr,
     pub isDestroyed_k__BackingField: bool,
-    pub prefabName: TypedRemotePtr<DotNetString>,
-    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString>,
+    pub prefabName: TypedRemotePtr<DotNetString<1>>,
+    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString<1>>,
     pub ragdoll: RemotePtr,      // to Ragdoll_o
     pub positionLerp: RemotePtr, // to PositionLerp_o
     pub menuOptions: RemotePtr,  // to System_Collections_Generic_List_Option__o
@@ -87,7 +87,7 @@ pub struct BaseEntity {
     pub parentBone: u32,
     pub skinID: u64,
     pub _components: RemotePtr, // to EntityComponentBase_array
-    pub _name: DotNetString,
+    pub _name: DotNetString<16>,
     pub _OwnerID_k__BackingField: u64,
 }
 
@@ -111,7 +111,7 @@ pub struct OcclusionCullingSphere {
 pub struct GameObjectRef {
     pub klass: RemotePtr,
     pub monitor: RemotePtr,
-    pub guid: TypedRemotePtr<DotNetString>,
+    pub guid: TypedRemotePtr<DotNetString<1>>,
     pub ResourceRef_1__cachedObject: TypedRemotePtr<UEGameObject>,
 }
 
@@ -159,9 +159,9 @@ pub struct PrefabPreProcess {
     pub isClientside: bool,
     pub isServerside: bool,
     pub isBundling: bool,
-    pub prefabList: RemotePtr, // System_Collections_Generic_Dictionary_string__GameObject__o
-    pub destroyList: RemotePtr, // System_Collections_Generic_List_Component__o
-    pub cleanupList: RemotePtr, // System_Collections_Generic_List_GameObject__o
+    pub prefabList: TypedRemotePtr<DotNetDict<DotNetString<1>, GameObject>>, // System_Collections_Generic_Dictionary_string__GameObject__o
+    pub destroyList: TypedRemotePtr<DotNetList<UEComponent>>,
+    pub cleanupList: TypedRemotePtr<DotNetList<GameObject>>, // System_Collections_Generic_List_GameObject__o
 }
 
 // ===========
@@ -169,36 +169,36 @@ pub struct PrefabPreProcess {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseObject {
-    pub(crate) pad_0x0000: libvirtdma::win::misc::Bytes8,
-    pub(crate) nextObjectLink: *mut BaseObject,
-    pub(crate) object: *mut GameObject,
+    pub pad_0x0000: libvirtdma::win::misc::Bytes8,
+    pub nextObjectLink: *mut BaseObject,
+    pub object: *mut GameObject,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct LastObjectBase {
-    pub(crate) pad_0x0000: libvirtdma::win::misc::Bytes16,
-    pub(crate) lastObject: *mut GameObject,
+    pub pad_0x0000: libvirtdma::win::misc::Bytes16,
+    pub lastObject: *mut GameObject,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GameObject {
-    pub(crate) pad_0x0000: [u8; 0x8],
-    pub(crate) m_instanceID: i32,
-    pub(crate) pad_0x000C: libvirtdma::win::misc::Bytes36,
-    pub(crate) m_label: i32,
-    pub(crate) pad_0x0034: [u8; 0x4],
-    pub(crate) m_size: i32,
-    pub(crate) pad_0x003C: [u8; 0x4],
-    pub(crate) m_capacity: i32,
-    pub(crate) pad_0x0044: [u8; 0x4],
-    pub(crate) m_layer: i32,
-    pub(crate) m_tag: i16,
-    pub(crate) m_isActive: u8,
-    pub(crate) m_isActiveCached: u8,
-    pub(crate) m_isDestroying: u8,
-    pub(crate) m_isActivating: u8,
-    pub(crate) pad_0x0052: [u8; 0x6],
-    pub(crate) m_objectName: u64, // *String
+    pub pad_0x0000: [u8; 0x8],
+    pub m_instanceID: i32,
+    pub pad_0x000C: libvirtdma::win::misc::Bytes36,
+    pub m_label: i32,
+    pub pad_0x0034: [u8; 0x4],
+    pub m_size: i32,
+    pub pad_0x003C: [u8; 0x4],
+    pub m_capacity: i32,
+    pub pad_0x0044: [u8; 0x4],
+    pub m_layer: i32,
+    pub m_tag: i16,
+    pub m_isActive: u8,
+    pub m_isActiveCached: u8,
+    pub m_isDestroying: u8,
+    pub m_isActivating: u8,
+    pub pad_0x0052: [u8; 0x6],
+    pub m_objectName: u64, // *String
 }

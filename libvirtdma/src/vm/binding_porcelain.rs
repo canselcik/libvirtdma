@@ -187,13 +187,23 @@ impl VMBinding {
         )
     }
 
-    pub fn dump_module_vmem(&self, dirbase: u64, module: &LdrModule) -> Box<[u8]> {
-        self.vreadvec(dirbase, module.BaseAddress, module.SizeOfImage as u64)
+    pub fn dump_module_vmem(&self, proc: &ProcKernelInfo, module: &LdrModule) -> Option<Box<[u8]>> {
+        match self.get_module_sections(proc, module).iter().last() {
+            None => None,
+            Some(last_section) => {
+                let size = (last_section.VirtualAddress + last_section.SizeOfRawData) as u64;
+                Some(self.vreadvec(
+                    proc.eprocess.Pcb.DirectoryTableBase,
+                    module.BaseAddress,
+                    size,
+                ))
+            }
+        }
     }
 
     pub fn get_module_sections(
         &self,
-        proc: &mut ProcKernelInfo,
+        proc: &ProcKernelInfo,
         module: &LdrModule,
     ) -> Vec<ImageSectionHeader> {
         let dirbase = proc.eprocess.Pcb.DirectoryTableBase;

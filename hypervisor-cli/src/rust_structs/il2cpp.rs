@@ -1,4 +1,5 @@
 use libvirtdma::{RemotePtr, TypedRemotePtr};
+use std::fmt::Formatter;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -35,12 +36,29 @@ pub struct DotNetList<T> {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct DotNetString {
+#[derive(Clone, Copy)]
+pub struct DotNetString<const N: usize> {
     pub klass: RemotePtr,
     pub monitor: RemotePtr,
     pub m_stringLength: i32,
-    pub m_firstChar: u16,
+    pub m_firstChar: [u16; N],
+}
+
+impl<const N: usize> std::fmt::Debug for DotNetString<N> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DotNetString(len={}, chars='{}')",
+            self.m_stringLength,
+            self.m_firstChar
+                .to_vec()
+                .iter()
+                .fold(String::new(), |out, curr| {
+                    let (first, second) = (curr & 0xFF, (curr >> 8) & 0xFF);
+                    format!("{},{},{}", out, first, second)
+                })
+        )
+    }
 }
 
 #[repr(C)]
@@ -63,8 +81,8 @@ pub struct Il2CppArrayBounds {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DotNetDict<T, U> {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub buckets: TypedRemotePtr<DotNetArray<i32>>,
     pub entries: TypedRemotePtr<DotNetArray<DotNetCollectionEntry<T, U>>>,
     pub count: i32,

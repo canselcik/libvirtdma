@@ -150,7 +150,7 @@ impl VMBinding {
         loop {
             let eprocess: EPROCESS = self.read(cur_proc);
             if eprocess.UniqueProcessId == 0 {
-                println!("Returning early from walking EPROCESS because PID is 0");
+                println!("WARN: Returning early from walking EPROCESS because PID is 0");
                 break;
             }
 
@@ -169,9 +169,9 @@ impl VMBinding {
                 let base_module_name =
                     match ldr.get_first_in_memory_order_module_list_with_dirbase(&self, dirbase) {
                         None => eprocess.ImageFileName.iter().map(|b| *b as char).join(""),
-                        Some(m) => m
+                        Some(module) => module
                             .BaseDllName
-                            .resolve(&self, Some(dirbase), Some(512))
+                            .resolve(&self, Some(dirbase), Some(64))
                             .unwrap_or("unknown".to_string()),
                     };
                 // Liveness check

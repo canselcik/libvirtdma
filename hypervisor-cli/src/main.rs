@@ -1,5 +1,5 @@
-#![allow(non_snake_case)]
-use crate::rust_structs::il2cpp::DotNetList;
+#![allow(non_snake_case, incomplete_features)]
+#![feature(const_generics)]
 use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager};
 use colored::*;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
@@ -36,7 +36,13 @@ fn kmod_to_file(vm: &VMBinding, cmd: &[String]) {
 
 fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_player: &LdrModule) {
     let rust_dirbase = rust.eprocess.Pcb.DirectoryTableBase;
-    let module_mem = vm.dump_module_vmem(rust_dirbase, unity_player);
+    let module_mem = match vm.dump_module_vmem(rust, unity_player) {
+        Some(mem) => mem,
+        None => {
+            println!("Unable to dump module memory");
+            return;
+        }
+    };
 
     let matches = match VMBinding::pmemmem(
         &module_mem,
@@ -89,7 +95,7 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
             break;
         }
         let gobj_addr: u64 = vm.vread(rust_dirbase, obj + 0x10);
-        let gobj_name = vm.read_cstring_from_physical_mem(
+        let _gobj_name = vm.read_cstring_from_physical_mem(
             vm.native_translate(rust_dirbase, gobj_addr),
             Some(255),
         );
@@ -99,8 +105,8 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
             6 => println!("6 nicer"),
             20011 => println!("20011 nicee"),
             unk => println!(
-                "ent {} {} @ 0x{:x} (obj was at 0x{:x}",
-                unk, gobj_name, gobj_addr, obj
+                "ent {} {} @ 0x{:x} (obj was at 0x{:x})",
+                unk, _gobj_name, gobj_addr, obj
             ),
         }
         offset += 0x8;
@@ -109,7 +115,10 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
     let preprocessed = gom.preProcessed.vread(vm, rust_dirbase, 0);
     println!("PrefabPreProcess: {:#?}", preprocessed);
 
-    // let game_obj: GameObject = vm.vread(rust_dirbase, lto.lastObject as u64);
+    let prefablist = preprocessed.prefabList.vread(&vm, rust_dirbase, 0);
+    println!("prefablist: {:#?}", prefablist);
+
+    // let game_obj: GameObject = vm.vread(rust_dirbase, lto.lastObject as u64)`;
     // println!(
     //     "GameObject at 0x{:x}: {:#?}",
     //     lto.lastObject as u64, game_obj
@@ -128,17 +137,10 @@ fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_ass
     let nb: BaseNetworkable = vm.vread(dirbase, bnaddr);
     println!("BaseNetworkable at 0x{:x}: {:#?}", bnaddr, nb);
 
-    let list_of_components_postNetworkUpdateComponents: DotNetList<u32> =
-        vm.vread(dirbase, bnaddr + 0x28);
-    println!(
-        "list_of_components_postNetworkUpdateComponents: {:#?}",
-        list_of_components_postNetworkUpdateComponents
-    );
-    //public List<Component> ; // 0x28
-
-    let ptr_eref = nb.parentEntityRef.addr() + game_assembly.BaseAddress;
+    let ptr_eref = nb.parentEntityRef.addr();
     let eref: EntityRef = vm.vread(dirbase, ptr_eref);
-    println!("EREF at {}: {:#?}", ptr_eref, eref);
+    let base_entity = eref.ent_cached.vread(vm, dirbase, 0);
+    println!("BaseEntity@{}: {:#?}", eref.ent_cached, base_entity);
 }
 
 fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
@@ -318,7 +320,13 @@ fn dispatch_commands(
                     .trim()
                     .to_string();
                     let outfile = p.join(format!("{}.bin", name));
-                    let modulemem = vm.dump_module_vmem(dtb, module);
+                    let modulemem = match vm.dump_module_vmem(info, module) {
+                        None => {
+                            println!("Unable to read module mem for {}", name);
+                            continue;
+                        }
+                        Some(m) => m,
+                    };
                     match std::fs::write(&outfile, &modulemem) {
                         Ok(_) => {
                             println!("{} bytes written to file '{:?}'", modulemem.len(), outfile)
@@ -582,7 +590,13 @@ fn dispatch_commands(
                 let keyword = parts[1].to_lowercase();
                 let dtb = info.eprocess.Pcb.DirectoryTableBase;
                 for module in vm.get_process_modules(info).iter() {
-                    let data = vm.dump_module_vmem(dtb, module);
+                    let data = match vm.dump_module_vmem(info, module) {
+                        None => {
+                            println!("Unable to read module mem");
+                            return None;
+                        }
+                        Some(m) => m,
+                    };
                     match VMBinding::pmemmem(&data, &keyword) {
                         Ok(results) => {
                             let mut i: u64 = 0;
@@ -681,7 +695,13 @@ fn dispatch_commands(
                 };
                 println!("Found MessageBoxA at 0x{:x}", va_msgboxa);
 
-                let main_module_mem = vm.dump_module_vmem(dirbase, base_module);
+                let main_module_mem = match vm.dump_module_vmem(info, base_module) {
+                    None => {
+                        println!("Unable to read module mem");
+                        return None;
+                    }
+                    Some(m) => m,
+                };
                 let secretaddr = base_module.BaseAddress
                     + match VMBinding::pmemmem(&main_module_mem, "736563726574") {
                         Ok(m) => {

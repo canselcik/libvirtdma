@@ -3,8 +3,8 @@ use libvirtdma::{RemotePtr, TypedRemotePtr};
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct UEComponent {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub Object_m_CachedPtr: TypedRemotePtr<i32>,
 }
 

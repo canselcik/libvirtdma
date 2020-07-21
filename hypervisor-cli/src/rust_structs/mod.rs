@@ -14,18 +14,21 @@ pub mod ue;
 pub struct BaseNetworkable {
     // pub klass: RemotePtr,
     // pub monitor: RemotePtr,
-    pub object_m_CachedPtr: RemotePtr,
-    pub justCreated_k__BackingField: bool,
-    pub entityDestroy_deferredAction: RemotePtr,
-    pub postNetworkUpdateComponents: TypedRemotePtr<DotNetList<UEComponent>>,
-    pub parentEntityRef: TypedRemotePtr<EntityRef>,
-    pub children: TypedRemotePtr<DotNetList<BaseEntity>>,
-    pub prefabID: u32,
+    /// If enabled the entity will send to everyone on the server - regardless of position
     pub globalBroadcast: bool,
-    pub net_Network_Networkable_o: RemotePtr,
-    pub isDestroyed_k__BackingField: bool,
+    pub net_Network_Networkable_o: RemotePtr, // ptr to Networkable
     pub prefabName: TypedRemotePtr<DotNetString<1>>,
     pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString<1>>,
+    pub serverEntities: RemotePtr, // static ptr to BaseNetworkable.EntityRealm -- kinda unsure
+    pub isServersideEntity: bool,
+    pub _limitedNetworking: bool,
+    pub parentEntityRef: TypedRemotePtr<EntityRef>, // [NonSerialized]
+    pub children: TypedRemotePtr<DotNetList<BaseEntity>>, // [NonSerialized]
+    pub creationFrame: i32,
+    pub isSpawned: bool,
+    pub _NetworkCache: RemotePtr,          // ptr to MemoryStream
+    pub EntityMemoryStreamPool: RemotePtr, // static ptr to Queue<MemoryStream>
+    pub _SaveCache: RemotePtr,             // to MemoryStream
 }
 
 #[repr(C)]
@@ -49,8 +52,8 @@ pub struct EntityRef {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseEntity {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub Object_m_CachedPtr: TypedRemotePtr<i32>,
     pub justCreated_k__BackingField: bool,
     pub entityDestroy_deferredAction: RemotePtr,
@@ -109,8 +112,8 @@ pub struct OcclusionCullingSphere {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GameObjectRef {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub guid: TypedRemotePtr<DotNetString<1>>,
     pub ResourceRef_1__cachedObject: TypedRemotePtr<UEGameObject>,
 }
@@ -118,25 +121,25 @@ pub struct GameObjectRef {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PrefabPoolCollection {
-    pub klass: RemotePtr,   // PrefabPoolCollection_c
-    pub monitor: RemotePtr, // void*
+    // pub klass: RemotePtr,   // PrefabPoolCollection_c
+    // pub monitor: RemotePtr, // void*
     pub storage: TypedRemotePtr<DotNetDict<u32, PrefabPoolObject>>,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PrefabPoolObject {
-    pub klass: RemotePtr,   // PrefabPool_c
-    pub monitor: RemotePtr, // void*
+    // pub klass: RemotePtr,   // PrefabPool_c
+    // pub monitor: RemotePtr, // void*
     pub stack: TypedRemotePtr<DotNetStack<PoolableObject>>,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PoolableObject {
-    pub klass: RemotePtr,   // Poolable_c*
-    pub monitor: RemotePtr, // void*
-    pub Object_m_CachedPtr: TypedRemotePtr<i32>,
+    // pub klass: RemotePtr,   // Poolable_c*
+    // pub monitor: RemotePtr, // void*
+    // pub Object_m_CachedPtr: TypedRemotePtr<i32>,
     pub prefabID: u32,
     pub behaviours: DotNetArray<UEBehaviour>,
     pub rigidbodies: DotNetArray<UERigidbody>,
@@ -154,8 +157,8 @@ pub struct PoolableObject {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PrefabPreProcess {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub isClientside: bool,
     pub isServerside: bool,
     pub isBundling: bool,

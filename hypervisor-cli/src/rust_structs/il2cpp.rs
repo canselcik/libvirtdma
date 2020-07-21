@@ -19,8 +19,8 @@ pub struct TypedIl2CppObject<T> {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DotNetStack<T> {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub _array: TypedRemotePtr<DotNetArray<T>>,
     pub _size: i32,
     pub _version: i32,
@@ -38,8 +38,8 @@ pub struct DotNetList<T> {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct DotNetString<const N: usize> {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub m_stringLength: i32,
     pub m_firstChar: [u16; N],
 }
@@ -64,8 +64,8 @@ impl<const N: usize> std::fmt::Debug for DotNetString<N> {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DotNetArray<T> {
-    pub klass: RemotePtr,
-    pub monitor: RemotePtr,
+    // pub klass: RemotePtr,
+    // pub monitor: RemotePtr,
     pub bounds: TypedRemotePtr<Il2CppArrayBounds>,
     pub max_length: u64,
     pub m_Items: TypedRemotePtr<[T; 65535]>,

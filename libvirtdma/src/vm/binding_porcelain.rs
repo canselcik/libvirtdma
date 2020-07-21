@@ -251,12 +251,13 @@ impl VMBinding {
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             "Process Modules",
-            3,
+            4,
             Alignment::Center,
         )]));
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Name", 1, Alignment::Center),
             TableCell::new_with_alignment("Base Address", 1, Alignment::Center),
+            TableCell::new_with_alignment("Entry Point", 1, Alignment::Center),
             TableCell::new_with_alignment("Size", 1, Alignment::Center),
         ]));
         for m in modules.iter() {
@@ -271,6 +272,7 @@ impl VMBinding {
                     1,
                     Alignment::Right,
                 ),
+                TableCell::new_with_alignment(format!("0x{:x}", m.EntryPoint), 1, Alignment::Right),
                 TableCell::new_with_alignment(
                     format!("0x{:x}", m.SizeOfImage),
                     1,

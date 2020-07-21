@@ -319,7 +319,7 @@ fn dispatch_commands(
                     }
                     .trim()
                     .to_string();
-                    let outfile = p.join(format!("{}.bin", name));
+                    let outfile = p.join(format!("{},0x{:x}.bin", name, module.BaseAddress));
                     let modulemem = match vm.dump_module_vmem(info, module) {
                         None => {
                             println!("Unable to read module mem for {}", name);

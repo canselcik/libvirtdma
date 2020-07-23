@@ -1,6 +1,9 @@
 #![allow(non_snake_case, incomplete_features)]
 #![feature(const_generics)]
-use crate::rust_structs::{BaseNetworkable, EntityRef, GameObjectManager};
+use crate::rust_structs::il2cpp::{DotNetArray, DotNetDict, DotNetList, DotNetString};
+use crate::rust_structs::{
+    BaseNetworkable, EntityRef, GameObjectManager, PoolableObject, PrefabPreProcess,
+};
 use colored::*;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
 use libvirtdma::vm::mlayout::parse_u64;
@@ -74,10 +77,9 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
 
     let offsetA: i32 = vm.vread(rust_dirbase, gomsig_addr + 3);
     let gom_addr_offset = gomsig_addr + 7 - unity_player.BaseAddress + offsetA as u64;
+    assert_eq!(gom_addr_offset, 0x17a6ad8);
+
     let gom_addr = unity_player.BaseAddress + gom_addr_offset;
-
-    assert_eq!(unity_player.BaseAddress + 0x17a6ad8, gom_addr);
-
     println!(
         "gomaddr in proc space: 0x{:x} (offset: 0x{:x})",
         gom_addr, gom_addr_offset,
@@ -86,37 +88,16 @@ fn rust_unity_player_module(vm: &VMBinding, rust: &mut ProcKernelInfo, unity_pla
     let gom: GameObjectManager = vm.vread(rust_dirbase, gom_addr);
     println!("GOM: {:#?}", gom);
 
-    let container: RemotePtr = vm.vread(rust_dirbase, gom.pool.addr());
-    //  gom.pool.vread(&vm, rust_dirbase, 0);
-    let mut offset = 0;
-    loop {
-        let obj: u64 = container.vread(&vm, rust_dirbase, offset);
-        if obj == gom_addr || obj == 0 {
-            break;
-        }
-        let gobj_addr: u64 = vm.vread(rust_dirbase, obj + 0x10);
-        let _gobj_name = vm.read_cstring_from_physical_mem(
-            vm.native_translate(rust_dirbase, gobj_addr),
-            Some(255),
-        );
-        let tag: u16 = vm.vread(rust_dirbase, obj + 0x54);
-        match tag {
-            5 => println!("ent5"),
-            6 => println!("6 nicer"),
-            20011 => println!("20011 nicee"),
-            unk => println!(
-                "ent {} {} @ 0x{:x} (obj was at 0x{:x})",
-                unk, _gobj_name, gobj_addr, obj
-            ),
-        }
-        offset += 0x8;
-    }
-
     let preprocessed = gom.preProcessed.vread(vm, rust_dirbase, 0);
     println!("PrefabPreProcess: {:#?}", preprocessed);
 
-    let prefablist = preprocessed.prefabList.vread(&vm, rust_dirbase, 0);
-    println!("prefablist: {:#?}", prefablist);
+    let prefabList = preprocessed.prefabList.vread(vm, rust_dirbase, 0);
+    println!(
+        "PREFABLIST AT {}: {:#?}",
+        preprocessed.prefabList, prefabList
+    );
+
+    // prefabList.values
 
     // let game_obj: GameObject = vm.vread(rust_dirbase, lto.lastObject as u64)`;
     // println!(
@@ -132,15 +113,18 @@ fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_ass
          CreateProjectile: 48895C24??48896C24??48897424??48897C24??41564883EC50803D??????????498BD9498BE8
          SendProjectileAttack: E8????????F20F1083????????F20F1183????????8B83????????8983????????80BB??????????
     */
-    let bnaddr = game_assembly.BaseAddress + 0x28FFD20;
     let dirbase = rust.eprocess.Pcb.DirectoryTableBase;
+    let module_mem = match vm.dump_module_vmem(rust, game_assembly) {
+        Some(mem) => mem,
+        None => {
+            println!("Unable to dump module memory");
+            return;
+        }
+    };
+
+    let bnaddr = game_assembly.BaseAddress + 0x28FFD20;
     let nb: BaseNetworkable = vm.vread(dirbase, bnaddr);
     println!("BaseNetworkable at 0x{:x}: {:#?}", bnaddr, nb);
-
-    let ptr_eref = nb.parentEntityRef.addr();
-    let eref: EntityRef = vm.vread(dirbase, ptr_eref);
-    let base_entity = eref.ent_cached.vread(vm, dirbase, 0);
-    println!("BaseEntity@{}: {:#?}", eref.ent_cached, base_entity);
 }
 
 fn rust_routine(vm: &VMBinding, rust: &mut ProcKernelInfo) {
@@ -401,14 +385,40 @@ fn dispatch_commands(
                         }
                     };
                     let dtb = info.eprocess.Pcb.DirectoryTableBase;
-
                     let mut last_type = "";
+                    macro_rules! dbgstruct {
+                        ($typ: ty, $i: expr, $offset: expr) => {{
+                            let data: $typ = vm.vread(dtb, hVA + $offset);
+                            println!("  (+0x{:x}) ${} = {:#?}", $offset, $i, data);
+                            println!("\x1b[F  }}");
+                            Ok(std::mem::size_of::<$typ>() as i64)
+                        }};
+                    }
                     let eval = |i, component, offset| -> Result<i64, ()> {
                         match component {
+                            "prefabpreprocess" => dbgstruct!(PrefabPreProcess, i, offset),
+                            "poolableobject" => dbgstruct!(PoolableObject, i, offset),
+                            ".netarray" => dbgstruct!(DotNetArray<RemotePtr>, i, offset),
+                            ".netstr16" => dbgstruct!(DotNetString<16>, i, offset),
+                            ".netstr32" => dbgstruct!(DotNetString<32>, i, offset),
+                            ".netlist" => dbgstruct!(DotNetList<RemotePtr>, i, offset),
+                            ".netdict" => dbgstruct!(DotNetDict<RemotePtr, RemotePtr>, i, offset),
+                            "bn" => dbgstruct!(BaseNetworkable, i, offset),
+                            "gom" => dbgstruct!(GameObjectManager, i, offset),
                             "u8" | "uint8_t" | "byte" => {
                                 let data: u8 = vm.vread(dtb, hVA + offset);
                                 println!("  (+0x{:x}) ${} = 0x{:0>2x}", offset, i, data);
                                 Ok(1)
+                            }
+                            "u16" | "uint16_t" | "ushort" => {
+                                let data: u8 = vm.vread(dtb, hVA + offset);
+                                println!("  (+0x{:x}) ${} = {}", offset, i, data);
+                                Ok(2)
+                            }
+                            "u32" | "uint32_t" | "uint" => {
+                                let data: u32 = vm.vread(dtb, hVA + offset);
+                                println!("  (+0x{:x}) ${} = {}", offset, i, data);
+                                Ok(4)
                             }
                             "bool" => {
                                 let data: bool = vm.vread(dtb, hVA + offset);
@@ -1137,6 +1147,9 @@ enum DispatchCommandReturnAction {
     EnterKernelContext,
 }
 
+#[macro_use]
+extern crate rouille;
+
 fn main() {
     ctrlc::set_handler(move || {
         println!("Exiting gracfully...");
@@ -1144,7 +1157,7 @@ fn main() {
     })
     .expect("Error setting Ctrl-C handler");
 
-    let vm = VMBinding::new().expect("failed to bind");
+    let vm = std::sync::Arc::new(VMBinding::new().expect("failed to bind"));
     let histfile = format!(
         "{}/.lvdmacli_hist",
         match dirs::home_dir() {
@@ -1152,6 +1165,23 @@ fn main() {
             None => ".".to_string(),
         }
     );
+
+    let apivmref = std::sync::Arc::clone(&vm);
+    let _api_handle = std::thread::spawn(move || {
+        rouille::start_server("0.0.0.0:2222", move |request| {
+            let reqvmref = std::sync::Arc::clone(&apivmref);
+            router!(request,
+                (GET) (/) => {
+                     rouille::Response::text("DMA_OK")
+                },
+                (GET) (/dma/pmemread/{dirbase: u64}/{va: u64}/{len: u64}) => {
+                    println!("[api] pmemread(dirbase={}, va={}, len={})", dirbase, va, len);
+                    rouille::Response::text(hex::encode(&reqvmref.vreadvec(dirbase, va, len))).with_no_cache()
+                },
+                _ => rouille::Response::empty_404()
+            )
+        });
+    });
 
     println!("{}", "######################".blue());
     println!("{}", "#  Hypervisor Shell   ".blue());

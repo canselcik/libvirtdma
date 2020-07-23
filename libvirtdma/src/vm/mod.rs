@@ -67,6 +67,6 @@ pub struct VMBinding {
     pub nt_kernel_modulebase: u64,
     pub initial_process: WinProc,
     pub cached_nt_exports: HashMap<String, WinExport>,
-    pub process: UnsafeCell<ProcessData>,
+    pub process: ProcessData,
     pub offsets: Option<Offsets>,
 }

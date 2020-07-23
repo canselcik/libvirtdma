@@ -30,7 +30,7 @@ pub struct DotNetStack<T> {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct DotNetList<T> {
-    pub methodTablePtr: u64,
+    pub methodTablePtr: RemotePtr,
     pub length: u64,
     pub firstElement: T,
 }
@@ -54,8 +54,8 @@ impl<const N: usize> std::fmt::Debug for DotNetString<N> {
                 .to_vec()
                 .iter()
                 .fold(String::new(), |out, curr| {
-                    let (first, second) = (curr & 0xFF, (curr >> 8) & 0xFF);
-                    format!("{},{},{}", out, first, second)
+                    let (first, second) = ((curr & 0xFF) as u8, ((curr >> 8) & 0xFF) as u8);
+                    format!("{},{},{}", out, first as char, second as char)
                 })
         )
     }

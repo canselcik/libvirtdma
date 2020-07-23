@@ -28,7 +28,7 @@ impl VMBinding {
             nt_build: 0,
             process: match Self::create_process_data() {
                 None => return None,
-                Some(s) => UnsafeCell::new(s),
+                Some(s) => s,
             },
             initial_process: WinProc {
                 eprocess_va: 0,
@@ -379,7 +379,7 @@ impl VMBinding {
                 return false;
             }
         };
-        let res = match unsafe { vmread_bind(fd, self.process.get()) } {
+        let res = match unsafe { vmread_bind(fd, &mut self.process) } {
             Ok(res) => res == 0,
             Err(e) => {
                 println!("Failed to call vmread ioctl: {}", e.to_string());

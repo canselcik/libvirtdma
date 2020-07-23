@@ -12,42 +12,37 @@ pub mod ue;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BaseNetworkable {
-    // pub klass: RemotePtr,
-    // pub monitor: RemotePtr,
-    /// If enabled the entity will send to everyone on the server - regardless of position
-    pub globalBroadcast: bool,
-    pub net_Network_Networkable_o: RemotePtr, // ptr to Networkable
-    pub prefabName: TypedRemotePtr<DotNetString<1>>,
-    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString<1>>,
-    pub serverEntities: RemotePtr, // static ptr to BaseNetworkable.EntityRealm -- kinda unsure
-    pub isServersideEntity: bool,
-    pub _limitedNetworking: bool,
-    pub parentEntityRef: TypedRemotePtr<EntityRef>, // [NonSerialized]
-    pub children: TypedRemotePtr<DotNetList<BaseEntity>>, // [NonSerialized]
-    pub creationFrame: i32,
-    pub isSpawned: bool,
-    pub _NetworkCache: RemotePtr,          // ptr to MemoryStream
-    pub EntityMemoryStreamPool: RemotePtr, // static ptr to Queue<MemoryStream>
-    pub _SaveCache: RemotePtr,             // to MemoryStream
+    pub staticEntityRealm: RemotePtr, // 0x00
+    pub _padding0: RemotePtr,         // 0x08
+    pub _padding1: RemotePtr,         // 0x10
+    pub _padding2: RemotePtr,         // 0x18
+    pub entityDestroy: RemotePtr,     // to DeferredAction, 0x20
+    pub postNetworkUpdateComponents: TypedRemotePtr<DotNetList<UEComponent>>, // 0x28
+    pub parentEntityRef: TypedRemotePtr<EntityRef>, // [NonSerialized] 0x30
+    pub _padding3: RemotePtr,         // 0x38
+    pub children: TypedRemotePtr<DotNetList<BaseEntity>>, // [NonSerialized] 0x40
+    pub prefabId: u32,                // 0x48
+    pub globalBroadcast: bool, // 0x4C [If enabled the entity will send to everyone on the server - regardless of position]
+    pub _padding4: [u8; 3],    // 0x4D
+    pub net: RemotePtr,        // 0x50 to Networkable
+    pub _padding5: RemotePtr,  // 0x58
+    pub prefabName: TypedRemotePtr<DotNetString<8>>, // 0x60
+    pub prefabNameWithoutExtension: TypedRemotePtr<DotNetString<8>>,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GameObjectManager {
-    // pub klass: RemotePtr,
-    // pub monitor: RemotePtr,
-    pub preProcessed: TypedRemotePtr<PrefabPreProcess>,
-    pub pool: TypedRemotePtr<PrefabPoolCollection>,
+    pub client: RemotePtr,    // 0x00 ptr to game manager static
+    pub _padding0: RemotePtr, // 0x08
+    pub preProcessed: TypedRemotePtr<PrefabPreProcess>, // 0x10
+    pub pool: TypedRemotePtr<PrefabPoolCollection>, // 0x18
     pub Clientside: bool,
     pub Serverside: bool,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct EntityRef {
-    pub ent_cached: TypedRemotePtr<BaseEntity>,
-    pub id_cached: u32,
-}
+pub type EntityRef = ResourceRef<BaseEntity>;
+pub type GameObjectRef = ResourceRef<GameObject>;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -111,18 +106,16 @@ pub struct OcclusionCullingSphere {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct GameObjectRef {
-    // pub klass: RemotePtr,
-    // pub monitor: RemotePtr,
-    pub guid: TypedRemotePtr<DotNetString<1>>,
-    pub ResourceRef_1__cachedObject: TypedRemotePtr<UEGameObject>,
+pub struct ResourceRef<T> {
+    pub guid: TypedRemotePtr<DotNetString<16>>,
+    pub ResourceRef_1__cachedObject: TypedRemotePtr<T>,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PrefabPoolCollection {
-    // pub klass: RemotePtr,   // PrefabPoolCollection_c
-    // pub monitor: RemotePtr, // void*
+    pub klass: RemotePtr,   // PrefabPoolCollection_c
+    pub monitor: RemotePtr, // void*
     pub storage: TypedRemotePtr<DotNetDict<u32, PrefabPoolObject>>,
 }
 
@@ -157,12 +150,12 @@ pub struct PoolableObject {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PrefabPreProcess {
-    // pub klass: RemotePtr,
-    // pub monitor: RemotePtr,
+    pub clientsideOnlyTypes: TypedRemotePtr<DotNetArray<RemotePtr>>, // to "Type" -- static
+    pub serversideOnlyTypes: TypedRemotePtr<DotNetArray<RemotePtr>>, // to "Type" -- static
     pub isClientside: bool,
     pub isServerside: bool,
     pub isBundling: bool,
-    pub prefabList: TypedRemotePtr<DotNetDict<DotNetString<1>, GameObject>>, // System_Collections_Generic_Dictionary_string__GameObject__o
+    pub prefabList: TypedRemotePtr<DotNetDict<DotNetString<16>, GameObject>>, // System_Collections_Generic_Dictionary_string__GameObject__o
     pub destroyList: TypedRemotePtr<DotNetList<UEComponent>>,
     pub cleanupList: TypedRemotePtr<DotNetList<GameObject>>, // System_Collections_Generic_List_GameObject__o
 }

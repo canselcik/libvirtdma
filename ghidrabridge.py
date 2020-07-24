@@ -97,17 +97,23 @@ def default_with_dirbase(dirbase):
 #         endaddr = selection.getMaxAddress()
 #
 # if beginaddr is None or endaddr is None:
+#     from_cursor = askYesNo("libvirtdma read", "Read into current cursor location?")
 #     loc = currentLocation
-#     if loc is not None:
+#     if from_cursor and loc is not None:
 #         beginaddr = loc.getAddress()
-#         size = askInt("Length of the read", "Length in bytes")
-#         endaddr = beginaddr.add(size)
 # if beginaddr is None:
 #     beginaddr = askAddress("Beginning of the read", "Begin Address")
+#
+# if endaddr is None:
+#     size = askInt("Length of the read", "Length in bytes")
+#     endaddr = beginaddr.add(size)
 # if endaddr is None:
 #     endaddr = askAddress("End of the read", "End Address")
 #
 # size = endaddr.offset - beginaddr.offset
 # print "Fetching from %x to %x (len: %d bytes)..." % (beginaddr.offset, endaddr.offset, size)
-# dma.read2frag(beginaddr.offset, size)
-# print "DONE"
+#
+# if dma.read2frag(beginaddr.offset, size):
+#     print "SUCCESS"
+# else:
+#     print "FAILED"

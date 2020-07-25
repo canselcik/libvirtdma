@@ -1152,7 +1152,7 @@ extern crate rouille;
 
 fn main() {
     ctrlc::set_handler(move || {
-        println!("Exiting gracfully...");
+        println!("Exiting gracefully...");
         std::process::exit(0);
     })
     .expect("Error setting Ctrl-C handler");

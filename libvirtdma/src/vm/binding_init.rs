@@ -12,7 +12,6 @@ use pelite::image::{
 use pelite::pe64::image::{IMAGE_NT_HEADERS, IMAGE_NT_HEADERS_SIGNATURE};
 use proc_maps::{MapRange, Pid};
 use regex::bytes::Regex;
-use std::cell::UnsafeCell;
 use std::collections::HashMap;
 use std::io::Read;
 use std::process::Stdio;
@@ -41,28 +40,34 @@ impl VMBinding {
         if !binding.init_device() {
             return None;
         }
-        match binding.find_initial_process() {
-            Some((pml4, kernel_entry)) => {
-                binding.initial_process.dirbase = pml4;
-                binding.nt_kernel_entry = kernel_entry;
-                match binding.find_nt_kernel(kernel_entry) {
-                    Some((ntk, kexports)) => {
-                        binding.nt_kernel_modulebase = ntk;
-                        // Less than ideal but we do it once. Better than having optionals or mutexes everywhere
-                        for (k, v) in kexports.iter() {
-                            binding.cached_nt_exports.insert(k.clone(), v.clone());
-                        }
-                    }
-                    None => {
-                        // Test in case we are running XP (QEMU AddressSpace is different)
-                        //   KFIXC = 0x40000000ll * 4;
-                        //   KFIXO = 0x40000000;
-                        //   FindNTKernel(ctx, kernelEntry);
-                        return None;
-                    }
-                };
-            }
+        let (pml4, kernel_entry) = match binding.find_initial_process() {
+            Some(s) => s,
             None => return None,
+        };
+
+        binding.initial_process.dirbase = pml4;
+        println!("PML4: 0x{:x}", pml4);
+
+        binding.nt_kernel_entry = kernel_entry;
+        println!("Kernel EntryPoint: 0x{:x}", kernel_entry);
+
+        match binding.find_nt_kernel(kernel_entry) {
+            Some((ntk, kexports)) => {
+                binding.nt_kernel_modulebase = ntk;
+                println!("NTKernel ModuleBase: 0x{:x}", ntk);
+
+                // Less than ideal but we do it once. Better than having optionals or mutexes everywhere
+                for (k, v) in kexports.iter() {
+                    binding.cached_nt_exports.insert(k.clone(), v.clone());
+                }
+            }
+            None => {
+                // Test in case we are running XP (QEMU AddressSpace is different)
+                //   KFIXC = 0x40000000ll * 4;
+                //   KFIXO = 0x40000000;
+                //   FindNTKernel(ctx, kernelEntry);
+                return None;
+            }
         };
 
         let init_proc_addr = match binding.find_kernel_export("PsInitialSystemProcess") {

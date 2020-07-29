@@ -1,5 +1,4 @@
 use crate::win::Offsets;
-use std::cell::UnsafeCell;
 use std::collections::HashMap;
 
 pub mod binding_core;

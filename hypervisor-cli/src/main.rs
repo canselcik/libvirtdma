@@ -1,9 +1,7 @@
 #![allow(non_snake_case, incomplete_features)]
 #![feature(const_generics)]
 use crate::rust_structs::il2cpp::{DotNetArray, DotNetDict, DotNetList, DotNetString};
-use crate::rust_structs::{
-    BaseNetworkable, EntityRef, GameObjectManager, PoolableObject, PrefabPreProcess,
-};
+use crate::rust_structs::{BaseNetworkable, GameObjectManager, PoolableObject, PrefabPreProcess};
 use colored::*;
 use libvirtdma::proc_kernelinfo::ProcKernelInfo;
 use libvirtdma::vm::mlayout::parse_u64;
@@ -114,7 +112,7 @@ fn rust_game_assembly_module(vm: &VMBinding, rust: &mut ProcKernelInfo, game_ass
          SendProjectileAttack: E8????????F20F1083????????F20F1183????????8B83????????8983????????80BB??????????
     */
     let dirbase = rust.eprocess.Pcb.DirectoryTableBase;
-    let module_mem = match vm.dump_module_vmem(rust, game_assembly) {
+    let _module_mem = match vm.dump_module_vmem(rust, game_assembly) {
         Some(mem) => mem,
         None => {
             println!("Unable to dump module memory");

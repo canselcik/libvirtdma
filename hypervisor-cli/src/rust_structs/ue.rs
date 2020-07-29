@@ -1,4 +1,4 @@
-use libvirtdma::{RemotePtr, TypedRemotePtr};
+use libvirtdma::TypedRemotePtr;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]

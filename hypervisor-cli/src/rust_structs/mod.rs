@@ -1,8 +1,8 @@
 #![allow(non_snake_case, dead_code)]
 use crate::rust_structs::il2cpp::{DotNetArray, DotNetDict, DotNetList, DotNetStack, DotNetString};
 use crate::rust_structs::ue::{
-    UEBehaviour, UEBounds, UECollider, UEComponent, UEGameObject, UELODGroup, UEParticleSystem,
-    UERenderer, UERigidbody, UEVec3,
+    UEBehaviour, UEBounds, UECollider, UEComponent, UELODGroup, UEParticleSystem, UERenderer,
+    UERigidbody, UEVec3,
 };
 use libvirtdma::{RemotePtr, TypedRemotePtr};
 

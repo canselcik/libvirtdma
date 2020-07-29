@@ -36,7 +36,7 @@ class VirtDMA(object):
         contents = bytearray.fromhex(hexcontents)
         segname = ".vdma{}".format(hex(vaddr))
         mem = currentProgram.getMemory()
-        writeAddr = toAddr(vaddr)
+        writeAddr = toAddr("0x%x" % vaddr)
         frag = mem.getBlock(writeAddr)
         if frag is None:
             try:
@@ -110,10 +110,12 @@ def default_with_dirbase(dirbase):
 # if endaddr is None:
 #     endaddr = askAddress("End of the read", "End Address")
 #
-# size = endaddr.offset - beginaddr.offset
-# print "Fetching from %x to %x (len: %d bytes)..." % (beginaddr.offset, endaddr.offset, size)
+# beginaddr = int("0x%s" % beginaddr.toString(), 16)
+# endaddr = int("0x%s" % endaddr.toString(), 16)
+# size = endaddr - beginaddr
+# print "Fetching from %x to %x (len: %d bytes)..." % (beginaddr, endaddr, size)
 #
-# if dma.read2frag(beginaddr.offset, size):
+# if dma.read2frag(beginaddr, size):
 #     print "SUCCESS"
 # else:
 #     print "FAILED"

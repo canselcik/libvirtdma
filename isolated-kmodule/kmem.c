@@ -12,10 +12,27 @@ MODULE_DESCRIPTION("vmread in-kernel helper used to accelerate memory operations
 MODULE_AUTHOR("Heep");
 MODULE_LICENSE("GPL");
 
+#if defined(USE_KPROBE_LOOKUP) || LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
+#include <linux/kprobes.h>
+unsigned long kallsyms_lookup_name(const char *name) {
+    int res;
+    void* ret;
+    struct kprobe kp = {0};
+    kp.symbol_name = name;
+
+    res = register_kprobe(&kp);
+    if (res < 0) {
+        printk("vmread: [kprobe] lookup for '%s' failed: %d\n", name, res);
+        return 0;
+    }
+    ret = kp.addr;
+    unregister_kprobe(&kp);
+    return (unsigned long)ret;
+}
+#endif
+
 #define KSYMDEC(x) static typeof(&x) _##x = NULL
 #define KSYM(x) _##x
-
-// This won't be possible beginning with Linux 5.7+ as this symbol won't be exported at all.
 #define KSYMDEF(x) _##x = (typeof(&x))kallsyms_lookup_name(#x)
 
 #define VMREAD_IOCTL_MAGIC 0x42

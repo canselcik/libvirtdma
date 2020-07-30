@@ -4,19 +4,17 @@
 #include <linux/proc_fs.h>
 #include <linux/printk.h>
 #include <linux/uaccess.h>
-#include <linux/kallsyms.h>
 #include <linux/vmalloc.h>
 #include <linux/ioctl.h>
+#include <linux/kprobes.h>
 
 MODULE_DESCRIPTION("vmread in-kernel helper used to accelerate memory operations");
 MODULE_AUTHOR("Heep");
 MODULE_LICENSE("GPL");
 
-#if defined(USE_KPROBE_LOOKUP) || LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0)
-#include <linux/kprobes.h>
-unsigned long kallsyms_lookup_name(const char *name) {
+void *lookup_name(const char *name) {
     int res;
-    void* ret;
+    void *ret;
     struct kprobe kp = {0};
     kp.symbol_name = name;
 
@@ -27,13 +25,12 @@ unsigned long kallsyms_lookup_name(const char *name) {
     }
     ret = kp.addr;
     unregister_kprobe(&kp);
-    return (unsigned long)ret;
+    return ret;
 }
-#endif
 
 #define KSYMDEC(x) static typeof(&x) _##x = NULL
 #define KSYM(x) _##x
-#define KSYMDEF(x) _##x = (typeof(&x))kallsyms_lookup_name(#x)
+#define KSYMDEF(x) _##x = (typeof(&x))lookup_name(#x)
 
 #define VMREAD_IOCTL_MAGIC 0x42
 #define VMREAD_IOCTL_MAPVMMEM _IOWR(VMREAD_IOCTL_MAGIC, 0, ProcessData)

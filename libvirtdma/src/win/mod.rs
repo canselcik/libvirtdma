@@ -157,6 +157,15 @@ impl Offsets {
                     ret.apl = 0x2f0;
                     ret.thread_list_entry = 0x6b8;
                 }
+                if nt_build >= 19041 {
+                    // Version 2004 or higher
+                    ret.apl = 0x448;
+                    ret.stack_count = 0x348;
+                    ret.image_file_name = 0x5a8;
+                    ret.peb = 0x550;
+                    ret.thread_list_head = 0x5e0;
+                    ret.thread_list_entry = 0x4e8;
+                }
                 Some(ret)
             }
             _ => None,
